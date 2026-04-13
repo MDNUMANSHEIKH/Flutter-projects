@@ -95,13 +95,28 @@ if ($stmt->affected_rows <= 0) {
 
 $stmt->close();
 
-$fetchStmt = $conn->prepare('SELECT id, course_id, sender_email, sender_name, sender_role, message, created_at, is_edited, edited_at FROM course_discussion_messages WHERE id = ? LIMIT 1');
+$hasReplyColumns = false;
+$replyIdCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'reply_to_message_id'");
+$replySenderCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'reply_to_sender_name'");
+$replyMessageCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'reply_to_message'");
+if (
+    $replyIdCheck && $replyIdCheck->num_rows > 0 &&
+    $replySenderCheck && $replySenderCheck->num_rows > 0 &&
+    $replyMessageCheck && $replyMessageCheck->num_rows > 0
+) {
+    $hasReplyColumns = true;
+}
+
+$selectSql = 'SELECT id, course_id, sender_email, sender_name, sender_role, message, created_at, is_edited, edited_at' .
+    ($hasReplyColumns ? ', reply_to_message_id, reply_to_sender_name, reply_to_message' : '') .
+    ' FROM course_discussion_messages WHERE id = ? LIMIT 1';
+
+$fetchStmt = $conn->prepare($selectSql);
 if (!$fetchStmt) {
     echo json_encode(['success' => true, 'message' => 'Message updated']);
     $conn->close();
     exit();
 }
-
 $fetchStmt->bind_param('i', $messageId);
 $fetchStmt->execute();
 $result = $fetchStmt->get_result();
@@ -118,6 +133,9 @@ if ($row) {
             'sender_name' => $row['sender_name'],
             'sender_role' => $row['sender_role'],
             'message' => $row['message'],
+            'reply_to_message_id' => $hasReplyColumns ? (isset($row['reply_to_message_id']) ? (int)$row['reply_to_message_id'] : null) : null,
+            'reply_to_sender_name' => $hasReplyColumns ? ($row['reply_to_sender_name'] ?? null) : null,
+            'reply_to_message' => $hasReplyColumns ? ($row['reply_to_message'] ?? null) : null,
             'created_at' => $row['created_at'],
             'is_edited' => (int)$row['is_edited'] === 1,
             'edited_at' => $row['edited_at'],

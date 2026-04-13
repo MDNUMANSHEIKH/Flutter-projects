@@ -2512,6 +2512,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         return Icons.assignment_outlined;
       case 'result':
         return Icons.assessment_outlined;
+      case 'discussion':
+        return Icons.forum_outlined;
       case 'alert':
         return Icons.warning_amber_rounded;
       default:
@@ -2656,6 +2658,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     final courseLabel = [courseCode, courseName]
         .where((value) => value.trim().isNotEmpty)
         .join(' - ');
+    final bool isDiscussion = type == 'discussion';
+    final dialogTitle = isDiscussion
+      ? (n['title'] ?? 'Notification').toString()
+      : (courseLabel.isNotEmpty
+        ? courseLabel
+        : (n['title'] ?? 'Notification').toString());
 
     bool handledByAction = false;
 
@@ -2663,15 +2671,16 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
-          courseLabel.isNotEmpty
-              ? courseLabel
-              : (n['title'] ?? 'Notification').toString(),
+          dialogTitle,
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(n['message'] ?? '', style: const TextStyle(fontSize: 16)),
+            Text(
+              n['message'] ?? '',
+              style: const TextStyle(fontSize: 16),
+            ),
             const SizedBox(height: 20),
             Text(
               'Received: ${_formatTimestamp(n['created_at'])}',

@@ -394,14 +394,23 @@ class ApiService {
     required String role,
     required String senderName,
     required String message,
+    int? replyToMessageId,
+    String? replyToSenderName,
+    String? replyToMessage,
   }) {
-    return _postJson('send_course_discussion_message.php', {
+    final body = <String, dynamic>{
       'course_id': courseId,
       'email': email.trim().toLowerCase(),
       'role': role.trim().toLowerCase(),
       'sender_name': senderName,
       'message': message,
-    });
+    };
+    if (replyToMessageId != null && replyToMessageId > 0) {
+      body['reply_to_message_id'] = replyToMessageId;
+      body['reply_to_sender_name'] = (replyToSenderName ?? '').trim();
+      body['reply_to_message'] = (replyToMessage ?? '').trim();
+    }
+    return _postJson('send_course_discussion_message.php', body);
   }
 
   Future<Map<String, dynamic>> updateCourseDiscussionMessage({
