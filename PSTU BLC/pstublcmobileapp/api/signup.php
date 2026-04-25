@@ -63,6 +63,8 @@ $category = trim(strtolower($data['category'] ?? ''));
 $hex = trim($data['hex'] ?? '');
 $password = $data['password'] ?? '';
 $confirmPassword = $data['confirm-password'] ?? $data['confirmPassword'] ?? '';
+$validateOnly = isset($data['validate_only']) && ($data['validate_only'] === true || $data['validate_only'] === 'true');
+$faculty = null;
 
 $errors = [];
 
@@ -75,7 +77,6 @@ if (empty($name)) {
 if (empty($email)) {
     $errors['email'] = 'Email is required';
 } elseif ($category === 'student') {
-    $faculty = null;
     $emailValidation = validateEmail($email, $faculty);
     
     if (!$emailValidation['valid']) {
@@ -116,25 +117,23 @@ if (!empty($errors)) {
     exit();
 }
 
-$passwordHash = hashPassword($password);
 
 try {
     if ($category === 'teacher') {
         $hexId = null;
-        $stmt = $conn->prepare("SELECT id FROM teacher_hex_codes WHERE hex_code = ?");
+        $stmt = $conn->prepare("SELECT id FROM teacher_hex_codes WHERE hex_code = ? LIMIT 1");
         $stmt->bind_param("s", $hex);
-        if ($stmt->execute()) {
-            $result = $stmt->get_result();
-            if ($row = $result->fetch_assoc()) {
-                $hexId = (int)$row['id'];
-            }
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $hexId = (int)$row['id'];
         }
         $stmt->close();
 
         if (!$hexId) {
             http_response_code(400);
             logActivity($conn, $email, 'teacher', 'signup_failed', 'Invalid HEX code');
-            echo json_encode(['success' => false, 'message' => 'Invalid HEX code']);
+            echo json_encode(['success' => false, 'message' => 'In valid hex']);
             exit();
         }
 
@@ -142,15 +141,35 @@ try {
         $stmt->bind_param("i", $hexId);
         $stmt->execute();
         $stmt->store_result();
-        if ($stmt->num_rows > 0) {
-            $stmt->close();
-            http_response_code(400);
-            logActivity($conn, $email, 'teacher', 'signup_failed', 'HEX code already used');
-            echo json_encode(['success' => false, 'message' => 'HEX code already used']);
-            exit();
-        }
+        $alreadyUsed = $stmt->num_rows > 0;
         $stmt->close();
 
+        if ($alreadyUsed) {
+            http_response_code(400);
+            logActivity($conn, $email, 'teacher', 'signup_failed', 'HEX code already used');
+            echo json_encode(['success' => false, 'message' => 'In valid hex']);
+            exit();
+        }
+
+        if ($validateOnly) {
+            // Also check if teacher email already exists
+            $stmt = $conn->prepare("SELECT id FROM teachers WHERE email = ? LIMIT 1");
+            $stmt->bind_param("s", $email);
+            $stmt->execute();
+            $stmt->store_result();
+            if ($stmt->num_rows > 0) {
+                $stmt->close();
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'User already exist']);
+                exit();
+            }
+            $stmt->close();
+
+            echo json_encode(['success' => true, 'message' => 'Teacher validation successful']);
+            exit();
+        }
+
+        $passwordHash = hashPassword($password);
         $stmt = $conn->prepare("INSERT INTO teachers (name, email, phone, password_hash, hex_code_id) VALUES (?, ?, ?, ?, ?)");
         $stmt->bind_param("ssssi", $name, $email, $phone, $passwordHash, $hexId);
         
@@ -165,8 +184,8 @@ try {
         } else {
             if (strpos($stmt->error, 'Duplicate entry') !== false) {
                 http_response_code(400);
-                logActivity($conn, $email, 'teacher', 'signup_failed', 'Email or HEX already registered');
-                echo json_encode(['success' => false, 'message' => 'Email or HEX already registered']);
+                logActivity($conn, $email, 'teacher', 'signup_failed', 'User already exist');
+                echo json_encode(['success' => false, 'message' => 'User already exist']);
             } else {
                 http_response_code(500);
                 logActivity($conn, $email, 'teacher', 'signup_failed', 'Registration failed: ' . $stmt->error);
@@ -175,7 +194,32 @@ try {
         }
         $stmt->close();
     } else {
+        if (!$faculty || !isset($faculty['table'])) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid student faculty']);
+            exit();
+        }
         $table = $faculty['table'];
+
+        if ($validateOnly) {
+            // Check for duplicate student email before finishing validation
+            $stmt = $conn->prepare("SELECT id FROM $table WHERE email = ? LIMIT 1");
+            $stmt->bind_param("s", $email);
+            $stmt->execute();
+            $stmt->store_result();
+            if ($stmt->num_rows > 0) {
+                $stmt->close();
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'User already exist']);
+                exit();
+            }
+            $stmt->close();
+
+            echo json_encode(['success' => true, 'message' => 'Student validation successful']);
+            exit();
+        }
+
+        $passwordHash = hashPassword($password);
         $stmt = $conn->prepare("INSERT INTO $table (name, email, phone, password_hash) VALUES (?, ?, ?, ?)");
         $stmt->bind_param("ssss", $name, $email, $phone, $passwordHash);
         
@@ -185,8 +229,8 @@ try {
         } else {
             if (strpos($stmt->error, 'Duplicate entry') !== false) {
                 http_response_code(400);
-                logActivity($conn, $email, 'student', 'signup_failed', 'Email already registered');
-                echo json_encode(['success' => false, 'message' => 'Email already registered']);
+                logActivity($conn, $email, 'student', 'signup_failed', 'User already exist');
+                echo json_encode(['success' => false, 'message' => 'User already exist']);
             } else {
                 http_response_code(500);
                 logActivity($conn, $email, 'student', 'signup_failed', 'Registration failed: ' . $stmt->error);

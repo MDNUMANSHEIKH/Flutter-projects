@@ -58,12 +58,18 @@ if (empty($email) || empty($password)) {
 
 
 $role = 'teacher';
-$faculty = null;
+$faculty = [];
+$user = null;
 
 try {
     if (isStudentEmail($email, $faculty)) {
         $role = 'student';
-        $table = $faculty['table'];
+        $table = isset($faculty['table']) ? $faculty['table'] : '';
+        if (empty($table)) {
+             http_response_code(500);
+             echo json_encode(['success' => false, 'message' => 'Faculty configuration error']);
+             exit();
+        }
         $stmt = $conn->prepare("SELECT id, name, email, password_hash FROM $table WHERE email = ? LIMIT 1");
         $stmt->bind_param('s', $email);
         $stmt->execute();
@@ -92,10 +98,10 @@ try {
             'success' => true,
             'message' => 'Login successful',
             'role' => $role,
-            'faculty' => [
-                'code' => $faculty['code'],
-                'name' => $faculty['name']
-            ]
+            'name' => $user['name'],
+            'email' => $user['email'],
+            'faculty_code' => isset($faculty['code']) ? $faculty['code'] : '',
+            'faculty_name' => isset($faculty['name']) ? $faculty['name'] : ''
         ]);
     } else {  
         $stmt = $conn->prepare('SELECT id, name, email, phone, password_hash FROM teachers WHERE email = ? LIMIT 1');

@@ -59,6 +59,25 @@ if (!$hasAccess) {
     exit();
 }
 
+
+function ensureDiscussionTargetColumns(mysqli $conn): bool {
+    $targetAudienceCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'target_audience'");
+    if ($targetAudienceCheck && $targetAudienceCheck->num_rows === 0) {
+        if (!$conn->query("ALTER TABLE course_discussion_messages ADD COLUMN target_audience VARCHAR(20) NOT NULL DEFAULT 'everyone' AFTER sender_role")) {
+            return false;
+        }
+    }
+
+    $targetStudentEmailCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'target_student_email'");
+    if ($targetStudentEmailCheck && $targetStudentEmailCheck->num_rows === 0) {
+        if (!$conn->query("ALTER TABLE course_discussion_messages ADD COLUMN target_student_email VARCHAR(100) NULL AFTER target_audience")) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 $hasEditedColumns = false;
 $editedCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'is_edited'");
 if ($editedCheck && $editedCheck->num_rows > 0) {
@@ -77,11 +96,21 @@ if (
     $hasReplyColumns = true;
 }
 
-$sql = "SELECT id, course_id, sender_email, sender_name, sender_role, message, created_at" .
+if (!ensureDiscussionTargetColumns($conn)) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Failed to prepare discussion table for recipients']);
+    exit();
+}
+
+$sql = "SELECT id, course_id, sender_email, sender_name, sender_role, target_audience, target_student_email, message, created_at" .
         ($hasReplyColumns ? ", reply_to_message_id, reply_to_sender_name, reply_to_message" : "") .
         ($hasEditedColumns ? ", is_edited, edited_at" : "") . "
         FROM course_discussion_messages
-        WHERE course_id = ?
+        WHERE course_id = ?";
+if ($role === 'student') {
+    $sql .= " AND (sender_email = ? OR target_audience = 'everyone' OR (target_audience = 'student' AND LOWER(target_student_email) = ?))";
+}
+$sql .= "
         ORDER BY created_at ASC, id ASC
         LIMIT 300";
 
@@ -92,7 +121,11 @@ if (!$stmt) {
     exit();
 }
 
-$stmt->bind_param('i', $courseId);
+if ($role === 'student') {
+    $stmt->bind_param('iss', $courseId, $email, $email);
+} else {
+    $stmt->bind_param('i', $courseId);
+}
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -104,6 +137,8 @@ while ($row = $result->fetch_assoc()) {
         'sender_email' => $row['sender_email'],
         'sender_name' => $row['sender_name'],
         'sender_role' => $row['sender_role'],
+        'target_audience' => $row['target_audience'] ?? 'everyone',
+        'target_student_email' => $row['target_student_email'] ?? null,
         'message' => $row['message'],
         'reply_to_message_id' => $hasReplyColumns ? (isset($row['reply_to_message_id']) ? (int)$row['reply_to_message_id'] : null) : null,
         'reply_to_sender_name' => $hasReplyColumns ? ($row['reply_to_sender_name'] ?? null) : null,

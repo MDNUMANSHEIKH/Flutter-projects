@@ -14,7 +14,9 @@ import 'package:pstublc/config/appwrite_storage.dart';
 import 'package:pstublc/login_page.dart';
 import 'package:pstublc/services/api_service.dart';
 import 'package:pstublc/widgets/course_discussion_section.dart';
+import 'package:pstublc/widgets/student_assignment_section.dart';
 import 'package:pstublc/widgets/student_course_materials_section.dart';
+import 'package:pstublc/widgets/delete_account_dialog.dart';
 
 class _PickedProfileImage {
   final String? path;
@@ -32,9 +34,9 @@ class StudentDashboardPage extends StatefulWidget {
 class _StudentDashboardPageState extends State<StudentDashboardPage> {
   final ApiService _apiService = ApiService();
   int _selectedTab = 0;
-  bool _loadingCourses = true;
-  bool _loadingProfile = true;
-  bool _loadingResults = true;
+  bool _loadingCourses = false;
+  bool _loadingProfile = false;
+  bool _loadingResults = false;
   bool _resultSelectionMode = false;
   String _selectedStudentCourseFilter = 'all';
   String _selectedStudentEnrollmentFilter = 'all';
@@ -46,7 +48,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   List<Map<String, dynamic>> _teachers = [];
   Map<String, String> _teacherProfileImageUrlByEmail = {};
   Map<String, dynamic> _profile = {};
-  bool _loadingTeachers = true;
+  bool _loadingTeachers = false;
   bool _showProfilePassword = false;
   String _profileImageUrlState = '';
   String _profileImageFileId = '';
@@ -71,7 +73,37 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   Future<void> _init() async {
     final session = await _apiService.getSession();
     _email = session['email'] ?? '';
-    await Future.wait([_loadCourses(), _loadProfile(), _loadResults()]);
+    
+    if (_email.isEmpty) {
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (_) => false,
+      );
+      return;
+    }
+
+    // Set initial loading states to true before starting the parallel wait
+    setState(() {
+      _loadingCourses = true;
+      _loadingProfile = true;
+      _loadingResults = true;
+    });
+
+    try {
+      await Future.wait([_loadCourses(), _loadProfile(), _loadResults()]);
+    } catch (e) {
+      debugPrint('Error in _init: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingCourses = false;
+          _loadingProfile = false;
+          _loadingResults = false;
+        });
+      }
+    }
 
     // Start loading in background without blocking initial render
     _loadNotifications();
@@ -80,24 +112,27 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   Future<void> _loadCourses() async {
     if (_email.isEmpty) return;
     setState(() => _loadingCourses = true);
-    final result = await _apiService.getStudentCourses(_email);
-    if (!mounted) return;
-    if (result['success'] == true) {
-      final rows = (result['courses'] as List? ?? [])
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
-      final keys = rows.map(_studentCourseKey).toSet();
-      setState(() {
-        _courses = rows;
-        if (_selectedStudentCourseFilter != 'all' &&
-            !keys.contains(_selectedStudentCourseFilter)) {
-          _selectedStudentCourseFilter = 'all';
-        }
-      });
-    } else {
-      _showMsg(result['message'] ?? 'Failed to load courses');
+    try {
+      final result = await _apiService.getStudentCourses(_email);
+      if (!mounted) return;
+      if (result['success'] == true) {
+        final rows = (result['courses'] as List? ?? [])
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+        final keys = rows.map(_studentCourseKey).toSet();
+        setState(() {
+          _courses = rows;
+          if (_selectedStudentCourseFilter != 'all' &&
+              !keys.contains(_selectedStudentCourseFilter)) {
+            _selectedStudentCourseFilter = 'all';
+          }
+        });
+      } else {
+        _showMsg(result['message'] ?? 'Failed to load courses');
+      }
+    } finally {
+      if (mounted) setState(() => _loadingCourses = false);
     }
-    setState(() => _loadingCourses = false);
   }
 
   String _studentCourseKey(Map<String, dynamic> course) {
@@ -152,17 +187,20 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   Future<void> _loadProfile() async {
     if (_email.isEmpty) return;
     setState(() => _loadingProfile = true);
-    final result = await _apiService.getProfile('student', _email);
-    if (!mounted) return;
-    if (result['success'] == true && result['data'] is Map) {
-      setState(
-        () => _profile = Map<String, dynamic>.from(result['data'] as Map),
-      );
-    } else {
-      _showMsg(result['message'] ?? 'Failed to load profile');
+    try {
+      final result = await _apiService.getProfile('student', _email);
+      if (!mounted) return;
+      if (result['success'] == true && result['data'] is Map) {
+        setState(
+          () => _profile = Map<String, dynamic>.from(result['data'] as Map),
+        );
+      } else {
+        _showMsg(result['message'] ?? 'Failed to load profile');
+      }
+      await _loadProfileAvatarFromStorage();
+    } finally {
+      if (mounted) setState(() => _loadingProfile = false);
     }
-    await _loadProfileAvatarFromStorage();
-    setState(() => _loadingProfile = false);
   }
 
   String _profileImagePrefix() {
@@ -580,8 +618,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     } catch (e) {
       _showMsg('Failed to load results');
       setState(() => _results = []);
+    } finally {
+      if (mounted) setState(() => _loadingResults = false);
     }
-    setState(() => _loadingResults = false);
   }
 
   String _courseScopeFromCourse(Map<String, dynamic> course) {
@@ -975,22 +1014,26 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
 
   Future<void> _loadTeachers() async {
     setState(() => _loadingTeachers = true);
-    final result = await _apiService.getAllTeachers();
-    if (!mounted) return;
-    if (result['success'] == true) {
-      final rows = (result['teachers'] as List? ?? [])
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
-      final avatarMap = await _loadTeacherProfileImages(rows);
+    try {
+      final result = await _apiService.getAllTeachers();
       if (!mounted) return;
-      setState(() {
-        _teachers = rows;
-        _teacherProfileImageUrlByEmail = avatarMap;
-      });
-    } else {
-      _showMsg(result['message'] ?? 'Failed to load teachers');
+      if (result['success'] == true) {
+        final rows = (result['teachers'] as List? ?? [])
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+        setState(() => _teachers = rows);
+        final urls = await _loadTeacherProfileImages(rows);
+        if (mounted) {
+          setState(() => _teacherProfileImageUrlByEmail = urls);
+        }
+      } else {
+        _showMsg(result['message'] ?? 'Failed to load teachers');
+      }
+    } catch (e) {
+      debugPrint('Error loading teachers: $e');
+    } finally {
+      if (mounted) setState(() => _loadingTeachers = false);
     }
-    setState(() => _loadingTeachers = false);
   }
 
   String _sanitizeTeacherEmail(String email) {
@@ -1308,37 +1351,17 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   }
 
   Future<void> _deleteAccount() async {
-    final passwordController = TextEditingController();
-    final ok = await showDialog<bool>(
+    final deleted = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Enter current password',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (context) => DeleteAccountDialog(
+        email: _email,
+        role: 'student',
+        apiService: _apiService,
       ),
     );
-    if (ok != true) return;
-    final result = await _apiService.deleteAccount(
-      role: 'student',
-      email: _email,
-      password: passwordController.text,
-    );
-    if (result['success'] == true) {
+
+    if (deleted == true) {
       await _apiService.logout();
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -1346,8 +1369,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         MaterialPageRoute(builder: (_) => const LoginPage()),
         (_) => false,
       );
-    } else {
-      _showMsg(result['message'] ?? 'Delete failed');
     }
   }
 
@@ -1389,6 +1410,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: true,
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
         title: Text(
           _selectedTab == 1 && _resultSelectionMode
               ? '$selectedCount selected'
@@ -2799,6 +2822,7 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
   bool _showAttendanceHistory = false;
   Timer? _attendanceTicker;
   List<Map<String, dynamic>> _classmates = [];
+  Map<String, String>? _classmateProfileImageUrlByEmail;
   List<Map<String, dynamic>> _attendanceSessions = [];
   Set<int> _markedSessionIds = {};
   int get _courseId =>
@@ -2825,7 +2849,13 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
     try {
       final parsed = DateTime.parse(value);
       final adjusted = parsed.subtract(const Duration(hours: 1));
-      return '${adjusted.hour.toString().padLeft(2, '0')}:${adjusted.minute.toString().padLeft(2, '0')}:${adjusted.second.toString().padLeft(2, '0')}';
+      int hour = adjusted.hour;
+      final minute = adjusted.minute.toString().padLeft(2, '0');
+      final second = adjusted.second.toString().padLeft(2, '0');
+      final period = hour >= 12 ? 'PM' : 'AM';
+      hour = hour % 12;
+      if (hour == 0) hour = 12;
+      return '$hour:$minute:$second $period';
     } catch (_) {
       final parts = value.split(' ');
       return parts.length > 1 ? parts[1] : value;
@@ -2908,10 +2938,7 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(
-                          session['course_code']?.toString() ?? '',
-                          style: TextStyle(color: Colors.grey[600]),
-                        ),
+
                       ],
                     ),
                     IconButton(
@@ -2974,17 +3001,51 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                               final r = report[index];
                               final hasAttended = r['attended'] == true;
                               return ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: hasAttended
-                                      ? Colors.green.withOpacity(0.1)
-                                      : Colors.red.withOpacity(0.1),
-                                  child: Icon(
-                                    hasAttended ? Icons.check : Icons.close,
-                                    color: hasAttended
-                                        ? Colors.green
-                                        : Colors.red,
-                                    size: 20,
-                                  ),
+                                leading: Stack(
+                                  children: [
+                                    CircleAvatar(
+                                      backgroundImage: _classmateProfileImageUrlByEmail?.containsKey((r['email'] ?? '').toString().trim().toLowerCase()) == true
+                                          ? NetworkImage(_classmateProfileImageUrlByEmail![(r['email'] ?? '').toString().trim().toLowerCase()]!)
+                                          : null,
+                                      backgroundColor: hasAttended
+                                          ? Colors.green.withOpacity(0.1)
+                                          : Colors.red.withOpacity(0.1),
+                                      child: _classmateProfileImageUrlByEmail?.containsKey((r['email'] ?? '').toString().trim().toLowerCase()) != true
+                                          ? Text(
+                                              _studentInitialsFromName(
+                                                r['name'] ?? '',
+                                              ),
+                                              style: TextStyle(
+                                                color: hasAttended
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            )
+                                          : null,
+                                    ),
+                                    Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(1),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          hasAttended
+                                              ? Icons.check_circle
+                                              : Icons.cancel,
+                                          size: 14,
+                                          color: hasAttended
+                                              ? Colors.green
+                                              : Colors.red,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 title: Text(
                                   r['name'] ?? '',
@@ -3062,9 +3123,80 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                 (student['is_blocked'] ?? 0).toString() != '1',
           )
           .toList();
-      setState(() => _classmates = rows);
+      final avatarMap = await _loadClassmateProfileImages(rows);
+      if (!mounted) return;
+      setState(() {
+        _classmates = rows;
+        _classmateProfileImageUrlByEmail = avatarMap;
+      });
     }
     setState(() => _loadingClassmates = false);
+  }
+
+  String _sanitizeStudentEmail(String email) {
+    return email.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+  }
+
+  String _studentInitialsFromName(String name) {
+    final normalized = name.trim();
+    if (normalized.isEmpty) return '';
+    final parts = normalized
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '';
+    if (parts.length == 1) {
+      final one = parts.first;
+      return one.length >= 2
+          ? one.substring(0, 2).toUpperCase()
+          : one.substring(0, 1).toUpperCase();
+    }
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  String _studentImageUrlFromFileId(String fileId) {
+    return '$appwriteEndpoint/storage/buckets/$materialsBucketId/files/$fileId/view?project=$appwriteProjectId';
+  }
+
+  Future<Map<String, String>> _loadClassmateProfileImages(
+    List<Map<String, dynamic>> students,
+  ) async {
+    final emailToPrefix = <String, String>{};
+    for (final student in students) {
+      final email = (student['email'] ?? '').toString().trim().toLowerCase();
+      if (email.isEmpty) continue;
+      emailToPrefix[email] = 'student_profile__${_sanitizeStudentEmail(email)}__';
+    }
+    if (emailToPrefix.isEmpty) return <String, String>{};
+
+    try {
+      final files = await appwriteStorage.listFiles(
+        bucketId: materialsBucketId,
+        queries: [Query.limit(500)],
+      );
+
+      final latestFileByEmail = <String, appwrite_models.File>{};
+      for (final file in files.files) {
+        for (final entry in emailToPrefix.entries) {
+          final email = entry.key;
+          final prefix = entry.value;
+          if (!file.name.startsWith(prefix)) continue;
+          final existing = latestFileByEmail[email];
+          if (existing == null ||
+              file.$createdAt.compareTo(existing.$createdAt) > 0) {
+            latestFileByEmail[email] = file;
+          }
+        }
+      }
+
+      final out = <String, String>{};
+      latestFileByEmail.forEach((email, file) {
+        out[email] = _studentImageUrlFromFileId(file.$id);
+      });
+      return out;
+    } catch (_) {
+      return <String, String>{};
+    }
   }
 
   Future<void> _loadAttendanceSessions() async {
@@ -3122,6 +3254,8 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
       initialIndex: 0,
       child: Scaffold(
         appBar: AppBar(
+          centerTitle: true,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
           title: Text(
             widget.course['course_name']?.toString() ?? 'Course Detail',
           ),
@@ -3147,7 +3281,13 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
               userName: '',
               apiService: widget.apiService,
             ),
-            const Center(child: Text('Assignments feature coming soon!')),
+            StudentAssignmentSection(
+              courseId: _courseId,
+              apiService: widget.apiService,
+              teacherName: (widget.course['teacher_name'] ?? '').toString(),
+              userEmail: widget.studentEmail,
+              userName: '',
+            ),
             _buildMaterials(),
             _buildClassmates(),
           ],
@@ -3182,6 +3322,10 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
           final s = _classmates[index];
           final name = (s['name'] ?? '').toString();
           final email = (s['email'] ?? '').toString();
+          final safeEmail = email.trim().toLowerCase();
+          final classmateAvatarMap = _classmateProfileImageUrlByEmail ?? const <String, String>{};
+          final profileImageUrl = classmateAvatarMap[safeEmail] ?? '';
+          final initials = _studentInitialsFromName(name);
           final isMe =
               email.toLowerCase() ==
               widget.studentEmail.toLowerCase();
@@ -3197,7 +3341,19 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                 CircleAvatar(
                   radius: 18,
                   backgroundColor: Colors.blueAccent.withOpacity(0.12),
-                  child: const Icon(Icons.person, color: Colors.blueAccent),
+                  backgroundImage: profileImageUrl.isNotEmpty
+                      ? NetworkImage(profileImageUrl)
+                      : null,
+                  child: profileImageUrl.isNotEmpty
+                      ? null
+                      : Text(
+                          initials.isNotEmpty ? initials : '?',
+                          style: const TextStyle(
+                            color: Colors.blueAccent,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -3315,8 +3471,8 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
       children: [
         Container(
           width: double.infinity,
-          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          padding: const EdgeInsets.all(16),
+          margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [Colors.blue.shade800, Colors.blue.shade600],
@@ -3410,7 +3566,7 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
           child: Row(
             children: [
               Expanded(
@@ -3471,7 +3627,7 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                   )
                 : GridView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
+                  padding: const EdgeInsets.fromLTRB(8, 10, 8, 80),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,

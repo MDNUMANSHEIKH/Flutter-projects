@@ -201,19 +201,24 @@ class _CourseMaterialsSectionState extends State<CourseMaterialsSection> {
     try {
       final result = await appwriteStorage.listFiles(
         bucketId: materialsBucketId,
-        queries: [Query.limit(200)],
+        queries: [
+          Query.limit(500),
+        ],
       );
       final rows = result.files
           .where((f) => _coursePrefixes.any((prefix) => _fileName(f).startsWith(prefix)))
           .toList()
         ..sort((a, b) => b.$createdAt.compareTo(a.$createdAt));
+      
       if (!mounted) return;
       setState(() => _materials = rows);
     } catch (e) {
       _showMsg('Failed to load materials: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMaterials = false);
+      }
     }
-    if (!mounted) return;
-    setState(() => _loadingMaterials = false);
   }
 
   Future<List<_SelectedFile>> _pickMultipleFiles() async {
@@ -458,6 +463,15 @@ class _CourseMaterialsSectionState extends State<CourseMaterialsSection> {
     if (widget.userRole.toLowerCase() == 'teacher') return true;
     return info.uploaderEmail.toLowerCase() == widget.userEmail.toLowerCase() &&
         info.uploaderRole.toLowerCase() == widget.userRole.toLowerCase();
+  }
+
+  bool get _canDeleteSelected {
+    if (_selectedFileIds.isEmpty) return false;
+    final selectedInfos = _materials
+        .map(_parseMaterial)
+        .where((info) => _selectedFileIds.contains(info.id))
+        .toList();
+    return selectedInfos.every(_canDeleteInfo);
   }
 
   void _enterSelectionMode(String fileId) {
@@ -860,16 +874,20 @@ class _CourseMaterialsSectionState extends State<CourseMaterialsSection> {
                       tooltip: 'Download selected',
                     ),
                     IconButton(
-                      onPressed: _selectedFileIds.isEmpty
-                          ? null
-                          : _deleteSelectedMaterials,
+                      onPressed: _canDeleteSelected
+                          ? _deleteSelectedMaterials
+                          : null,
                       icon: Icon(
                         Icons.delete,
-                        color: _selectedFileIds.isEmpty
-                            ? Colors.grey
-                            : Colors.red,
+                        color: _canDeleteSelected
+                            ? Colors.red
+                            : Colors.grey,
                       ),
-                      tooltip: 'Delete selected',
+                      tooltip: _canDeleteSelected
+                          ? 'Delete selected'
+                          : _selectedFileIds.isEmpty
+                              ? 'No files selected'
+                              : 'You can only delete your own files',
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
@@ -931,16 +949,20 @@ class _CourseMaterialsSectionState extends State<CourseMaterialsSection> {
                       tooltip: 'Download selected',
                     ),
                     IconButton(
-                      onPressed: _selectedFileIds.isEmpty
-                          ? null
-                          : _deleteSelectedMaterials,
+                      onPressed: _canDeleteSelected
+                          ? _deleteSelectedMaterials
+                          : null,
                       icon: Icon(
                         Icons.delete,
-                        color: _selectedFileIds.isEmpty
-                            ? Colors.grey
-                            : Colors.red,
+                        color: _canDeleteSelected
+                            ? Colors.red
+                            : Colors.grey,
                       ),
-                      tooltip: 'Delete selected',
+                      tooltip: _canDeleteSelected
+                          ? 'Delete selected'
+                          : _selectedFileIds.isEmpty
+                              ? 'No files selected'
+                              : 'You can only delete your own files',
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),

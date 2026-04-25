@@ -61,10 +61,17 @@ $user = $result->fetch_assoc();
 $storedEncrypted = $user['password_hash'];
 $decryptedStored = decryptPassword($storedEncrypted);
 
+$verifyOnly = isset($_POST['verify_only']) && ($_POST['verify_only'] === 'true' || $_POST['verify_only'] === '1');
+
 if ($password !== $decryptedStored) {
     http_response_code(401);
     logActivity($conn, $email, 'student', 'account_delete_failed', 'Incorrect password');
     echo json_encode(['success' => false, 'message' => 'Please enter the correct password']);
+    exit();
+}
+
+if ($verifyOnly) {
+    echo json_encode(['success' => true, 'message' => 'Password verified']);
     exit();
 }
 

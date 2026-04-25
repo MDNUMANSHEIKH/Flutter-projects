@@ -14,6 +14,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pstublc/config/appwrite_storage.dart';
 import 'package:pstublc/login_page.dart';
 import 'package:pstublc/services/api_service.dart';
+import 'package:pstublc/widgets/delete_account_dialog.dart';
+import 'package:pstublc/widgets/teacher_assignment_section.dart';
 import 'package:pstublc/widgets/course_discussion_section.dart';
 import 'package:pstublc/widgets/course_materials_section.dart';
 import 'package:pstublc/widgets/teacher_course_result_section.dart';
@@ -134,10 +136,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         bucketId: materialsBucketId,
         queries: [Query.limit(500)],
       );
-      final candidates = files.files
-          .where((f) => f.name.startsWith(prefix))
-          .toList()
-        ..sort((a, b) => b.$createdAt.compareTo(a.$createdAt));
+      final candidates =
+          files.files.where((f) => f.name.startsWith(prefix)).toList()
+            ..sort((a, b) => b.$createdAt.compareTo(a.$createdAt));
       if (!mounted) return;
       if (candidates.isEmpty) {
         setState(() {
@@ -172,7 +173,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             children: [
               _buildProfilePhotoPreview(size: 92),
               const SizedBox(height: 12),
-              
             ],
           ),
           actions: [
@@ -480,7 +480,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     for (final student in students) {
       final email = (student['email'] ?? '').toString().trim().toLowerCase();
       if (email.isEmpty) continue;
-      emailToPrefix[email] = 'student_profile__${_sanitizeStudentEmail(email)}__';
+      emailToPrefix[email] =
+          'student_profile__${_sanitizeStudentEmail(email)}__';
     }
     if (emailToPrefix.isEmpty) return <String, String>{};
 
@@ -497,7 +498,8 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
           final prefix = entry.value;
           if (!file.name.startsWith(prefix)) continue;
           final existing = latestFileByEmail[email];
-          if (existing == null || file.$createdAt.compareTo(existing.$createdAt) > 0) {
+          if (existing == null ||
+              file.$createdAt.compareTo(existing.$createdAt) > 0) {
             latestFileByEmail[email] = file;
           }
           break;
@@ -566,7 +568,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                     contentPadding: EdgeInsets.zero,
                     value: isPrivate,
                     title: const Text('Private course'),
-                    
+
                     controlAffinity: ListTileControlAffinity.leading,
                     onChanged: (value) =>
                         setDialogState(() => isPrivate = value ?? false),
@@ -608,9 +610,37 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   Future<void> _toggleVisibility(Map<String, dynamic> course) async {
     final id = int.tryParse((course['course_id'] ?? 0).toString()) ?? 0;
     final isPrivate = ((course['is_private'] ?? 0).toString() == '1');
+    final newState = !isPrivate;
+    final label = newState ? 'Private' : 'Public';
+    final courseName = (course['course_name'] ?? 'this course').toString();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Make $label?'),
+        content: Text('Are you sure you want to make "$courseName" $label?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: newState ? Colors.orange : Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: Text('Make $label'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
     final result = await _apiService.toggleCourseVisibility(
       courseId: id,
-      isPrivate: !isPrivate,
+      isPrivate: newState,
     );
     if (result['success'] == true) {
       await _loadCourses();
@@ -830,7 +860,10 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         ],
       ),
     );
-    if (updated == null || updated.isEmpty || updated == profileCurrent || updated == current) {
+    if (updated == null ||
+        updated.isEmpty ||
+        updated == profileCurrent ||
+        updated == current) {
       return;
     }
     final result = await _apiService.updateProfileField(
@@ -922,37 +955,17 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   }
 
   Future<void> _deleteAccount() async {
-    final passwordController = TextEditingController();
-    final ok = await showDialog<bool>(
+    final deleted = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Enter current password',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (context) => DeleteAccountDialog(
+        email: _email,
+        role: 'teacher',
+        apiService: _apiService,
       ),
     );
-    if (ok != true) return;
-    final result = await _apiService.deleteAccount(
-      role: 'teacher',
-      email: _email,
-      password: passwordController.text,
-    );
-    if (result['success'] == true) {
+
+    if (deleted == true) {
       await _apiService.logout();
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -960,8 +973,6 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
         MaterialPageRoute(builder: (_) => const LoginPage()),
         (_) => false,
       );
-    } else {
-      _showMsg(result['message'] ?? 'Delete failed');
     }
   }
 
@@ -1011,14 +1022,14 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
       return passFaculty && passSession && passVisibility;
     }).toList();
 
-        final publicCourses = filtered
-          .where((course) => (course['is_private'] ?? 0).toString() != '1')
-          .toList();
-        final privateCourses = filtered
-          .where((course) => (course['is_private'] ?? 0).toString() == '1')
-          .toList();
+    final publicCourses = filtered
+        .where((course) => (course['is_private'] ?? 0).toString() != '1')
+        .toList();
+    final privateCourses = filtered
+        .where((course) => (course['is_private'] ?? 0).toString() == '1')
+        .toList();
 
-        return [...publicCourses, ...privateCourses];
+    return [...publicCourses, ...privateCourses];
   }
 
   @override
@@ -1052,7 +1063,11 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Teacher Panel')),
+      appBar: AppBar(
+        title: const Text('Teacher Panel'),
+        centerTitle: true,
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+      ),
       body: IndexedStack(
         index: _selectedTab,
         children: [_buildCoursesTab(), _buildStudentsTab(), _buildProfileTab()],
@@ -1332,7 +1347,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                       );
                       final email = (s['email'] ?? '').toString();
                       final studentImageUrl =
-                          _studentProfileImageUrlByEmail[email.trim().toLowerCase()] ??
+                          _studentProfileImageUrlByEmail[email
+                              .trim()
+                              .toLowerCase()] ??
                           '';
                       final match = RegExp(r'(\d+)@').firstMatch(email);
                       final rollNo = match?.group(1) ?? 'N/A';
@@ -1368,23 +1385,26 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                           ),
                           trailing: const Icon(Icons.chevron_right, size: 16),
                           onTap: () {
-                            final studentName =
-                                (s['name'] ?? 'Student Profile').toString();
+                            final studentName = (s['name'] ?? 'Student Profile')
+                                .toString();
                             final studentInitials = _studentInitialsFromName(
                               studentName,
                             );
-                            final studentEmail = (s['email'] ?? 'N/A').toString();
+                            final studentEmail = (s['email'] ?? 'N/A')
+                                .toString();
                             final studentImageUrl =
-                              _studentProfileImageUrlByEmail[(s['email'] ?? '')
-                                  .toString()
-                                  .trim()
-                                  .toLowerCase()] ??
-                              '';
-                            final studentPhone = (s['phone'] ?? 'N/A').toString();
-                            final studentFaculty =
-                                (s['faculty_name'] ?? 'N/A').toString();
-                            final studentSession =
-                                (s['session'] ?? 'N/A').toString();
+                                _studentProfileImageUrlByEmail[(s['email'] ??
+                                        '')
+                                    .toString()
+                                    .trim()
+                                    .toLowerCase()] ??
+                                '';
+                            final studentPhone = (s['phone'] ?? 'N/A')
+                                .toString();
+                            final studentFaculty = (s['faculty_name'] ?? 'N/A')
+                                .toString();
+                            final studentSession = (s['session'] ?? 'N/A')
+                                .toString();
                             Future<void> copyValue(
                               String label,
                               String value,
@@ -1400,6 +1420,7 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                               );
                               _showMsg('$label copied');
                             }
+
                             showDialog(
                               context: context,
                               builder: (c) => AlertDialog(
@@ -1427,9 +1448,11 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                                 title: Row(
                                   children: [
                                     CircleAvatar(
-                                      backgroundColor: Colors.green
-                                          .withOpacity(0.12),
-                                      backgroundImage: studentImageUrl.isNotEmpty
+                                      backgroundColor: Colors.green.withOpacity(
+                                        0.12,
+                                      ),
+                                      backgroundImage:
+                                          studentImageUrl.isNotEmpty
                                           ? NetworkImage(studentImageUrl)
                                           : null,
                                       child: studentImageUrl.isNotEmpty
@@ -1687,7 +1710,10 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
   String _profileInitials() {
     final name = (_profile['name'] ?? '').toString().trim();
     if (name.isEmpty) return '';
-    final parts = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '';
     if (parts.length == 1) {
       final one = parts.first;
@@ -1713,21 +1739,24 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
             title: 'Name',
             value: (_profile['name'] ?? '').toString(),
             icon: Icons.badge_outlined,
-            onEdit: () => _editField('name', (_profile['name'] ?? '').toString()),
+            onEdit: () =>
+                _editField('name', (_profile['name'] ?? '').toString()),
           ),
           const Divider(height: 1),
           _buildProfileDetailRow(
             title: 'Email',
             value: (_profile['email'] ?? '').toString(),
             icon: Icons.email_outlined,
-            onEdit: () => _editField('email', (_profile['email'] ?? '').toString()),
+            onEdit: () =>
+                _editField('email', (_profile['email'] ?? '').toString()),
           ),
           const Divider(height: 1),
           _buildProfileDetailRow(
             title: 'Phone',
             value: (_profile['phone'] ?? '').toString(),
             icon: Icons.phone_outlined,
-            onEdit: () => _editField('phone', (_profile['phone'] ?? '').toString()),
+            onEdit: () =>
+                _editField('phone', (_profile['phone'] ?? '').toString()),
           ),
           const Divider(height: 1),
           _buildProfileDetailRow(
@@ -1801,10 +1830,9 @@ class _TeacherDashboardPageState extends State<TeacherDashboardPage> {
                   style: TextStyle(
                     fontSize: 11,
                     letterSpacing: 0.3,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.55),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.55),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1916,10 +1944,13 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
     try {
       final parsed = DateTime.parse(value);
       final adjusted = parsed.subtract(const Duration(hours: 1));
-      final hour = adjusted.hour.toString().padLeft(2, '0');
+      int hour = adjusted.hour;
       final minute = adjusted.minute.toString().padLeft(2, '0');
       final second = adjusted.second.toString().padLeft(2, '0');
-      return '$hour:$minute:$second';
+      final period = hour >= 12 ? 'PM' : 'AM';
+      hour = hour % 12;
+      if (hour == 0) hour = 12;
+      return '$hour:$minute:$second $period';
     } catch (_) {
       final parts = value.split(' ');
       return parts.length > 1 ? parts[1] : value;
@@ -1972,6 +2003,7 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
 
   Future<void> _showAttendanceReport(Map<String, dynamic> session) async {
     final sessionId = int.tryParse(session['id']?.toString() ?? '') ?? 0;
+    final Set<String> selectedEmails = {};
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2010,10 +2042,6 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                           ),
-                        ),
-                        Text(
-                          'Session ID: $sessionId',
-                          style: TextStyle(color: Colors.grey[600]),
                         ),
                       ],
                     ),
@@ -2081,6 +2109,218 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                                 ],
                               ),
                             ),
+                            if (selectedEmails.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  12,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(100),
+                                      border: Border.all(
+                                        color: Colors.blue.shade100,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: Transform.scale(
+                                            scale: 0.85,
+                                            child: Checkbox(
+                                              value:
+                                                  selectedEmails.length ==
+                                                  report.length,
+                                              activeColor: Colors.blue,
+                                              materialTapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
+                                              onChanged: (val) {
+                                                setSheetState(() {
+                                                  if (val == true) {
+                                                    selectedEmails.addAll(
+                                                      report.map(
+                                                        (e) =>
+                                                            (e['email'] ?? '')
+                                                                .toString()
+                                                                .trim(),
+                                                      ),
+                                                    );
+                                                  } else {
+                                                    selectedEmails.clear();
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${selectedEmails.length} selected',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Present Icon (Tick icon)
+                                        _buildCircleAction(
+                                          icon: Icons.check_circle_outline,
+                                          color: Colors.green,
+                                          tooltip: 'Mark Present',
+                                          onPressed: () async {
+                                            final ok = await showDialog<bool>(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: const Text(
+                                                  'Mark as Present',
+                                                ),
+                                                content: Text(
+                                                  'Mark ${selectedEmails.length} selected students as present?',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          context,
+                                                          false,
+                                                        ),
+                                                    child: const Text('Cancel'),
+                                                  ),
+                                                  ElevatedButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          context,
+                                                          true,
+                                                        ),
+                                                    child: const Text(
+                                                      'Confirm',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (ok != true) return;
+
+                                            for (final email
+                                                in selectedEmails) {
+                                              final student = report.firstWhere(
+                                                (e) =>
+                                                    (e['email'] ?? '')
+                                                        .toString()
+                                                        .trim() ==
+                                                    email,
+                                                orElse: () => {},
+                                              );
+                                              if (student['attended'] == true)
+                                                continue;
+
+                                              await widget.apiService
+                                                  .toggleManualAttendance(
+                                                    sessionId: sessionId,
+                                                    email: email,
+                                                    present: true,
+                                                  );
+                                            }
+                                            setSheetState(() {
+                                              selectedEmails.clear();
+                                            });
+                                            _showMsg('Batch update completed');
+                                          },
+                                        ),
+                                        // Absent Icon (Cross icon)
+                                        _buildCircleAction(
+                                          icon: Icons.cancel_outlined,
+                                          color: Colors.red,
+                                          tooltip: 'Mark Absent',
+                                          onPressed: () async {
+                                            final ok = await showDialog<bool>(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: const Text(
+                                                  'Mark as Absent',
+                                                ),
+                                                content: Text(
+                                                  'Mark ${selectedEmails.length} selected students as absent?',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          context,
+                                                          false,
+                                                        ),
+                                                    child: const Text('Cancel'),
+                                                  ),
+                                                  ElevatedButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          context,
+                                                          true,
+                                                        ),
+                                                    child: const Text(
+                                                      'Confirm',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (ok != true) return;
+
+                                            for (final email
+                                                in selectedEmails) {
+                                              final student = report.firstWhere(
+                                                (e) =>
+                                                    (e['email'] ?? '')
+                                                        .toString()
+                                                        .trim() ==
+                                                    email,
+                                                orElse: () => {},
+                                              );
+                                              if (student['attended'] == false)
+                                                continue;
+
+                                              await widget.apiService
+                                                  .toggleManualAttendance(
+                                                    sessionId: sessionId,
+                                                    email: email,
+                                                    present: false,
+                                                  );
+                                            }
+                                            setSheetState(() {
+                                              selectedEmails.clear();
+                                            });
+                                            _showMsg('Batch update completed');
+                                          },
+                                        ),
+                                        // Close Icon
+                                        _buildCircleAction(
+                                          icon: Icons.close,
+                                          color: Colors.grey.shade600,
+                                          tooltip: 'Close',
+                                          onPressed: () {
+                                            setSheetState(() {
+                                              selectedEmails.clear();
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             Expanded(
                               child: ListView.builder(
                                 controller: controller,
@@ -2093,104 +2333,207 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                                       '1');
                                   final studentEmail = (r['email'] ?? '')
                                       .toString();
-                                  return ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: hasAttended
-                                          ? Colors.green.withOpacity(0.1)
-                                          : Colors.red.withOpacity(0.1),
-                                      child: Icon(
-                                        hasAttended ? Icons.check : Icons.close,
-                                        color: hasAttended
-                                            ? Colors.green
-                                            : Colors.red,
+                                  final isSelected = selectedEmails.contains(
+                                    studentEmail,
+                                  );
+                                  return AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? Colors.blue.withOpacity(0.1)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? Colors.blue.withOpacity(0.4)
+                                            : Colors.transparent,
+                                        width: 1.5,
                                       ),
                                     ),
-                                    title: Text(
-                                      r['name'] ?? '',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    subtitle: Text(studentEmail),
-                                    trailing: isBlocked
-                                        ? const Text(
-                                            'BLOCKED',
-                                            style: TextStyle(
-                                              color: Colors.red,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 10,
-                                            ),
-                                          )
-                                        : Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Column(
-                                                mainAxisSize: MainAxisSize.min,
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.end,
-                                                children: [
-                                                  Text(
-                                                    hasAttended
-                                                        ? 'PRESENT'
-                                                        : 'ABSENT',
+                                    child: ListTile(
+                                      onLongPress: () {
+                                        setSheetState(() {
+                                          if (isSelected) {
+                                            selectedEmails.remove(studentEmail);
+                                          } else {
+                                            selectedEmails.add(studentEmail);
+                                          }
+                                        });
+                                      },
+                                      onTap: selectedEmails.isNotEmpty
+                                          ? () {
+                                              setSheetState(() {
+                                                if (isSelected) {
+                                                  selectedEmails.remove(
+                                                    studentEmail,
+                                                  );
+                                                } else {
+                                                  selectedEmails.add(
+                                                    studentEmail,
+                                                  );
+                                                }
+                                              });
+                                            }
+                                          : null,
+                                      leading: Stack(
+                                        children: [
+                                          CircleAvatar(
+                                            backgroundImage:
+                                                _studentProfileImageUrlByEmail
+                                                    .containsKey(
+                                                      studentEmail
+                                                          .trim()
+                                                          .toLowerCase(),
+                                                    )
+                                                ? NetworkImage(
+                                                    _studentProfileImageUrlByEmail[studentEmail
+                                                        .trim()
+                                                        .toLowerCase()]!,
+                                                  )
+                                                : null,
+                                            backgroundColor: hasAttended
+                                                ? Colors.green.withOpacity(0.1)
+                                                : Colors.red.withOpacity(0.1),
+                                            child:
+                                                !_studentProfileImageUrlByEmail
+                                                    .containsKey(
+                                                      studentEmail
+                                                          .trim()
+                                                          .toLowerCase(),
+                                                    )
+                                                ? Text(
+                                                    _studentInitialsFromName(
+                                                      r['name'] ?? '',
+                                                    ),
                                                     style: TextStyle(
                                                       color: hasAttended
                                                           ? Colors.green
                                                           : Colors.red,
+                                                      fontSize: 12,
                                                       fontWeight:
                                                           FontWeight.bold,
-                                                      fontSize: 10,
                                                     ),
-                                                  ),
-                                                  if (hasAttended) ...[
-                                                    const SizedBox(height: 2),
-                                                    Text(
-                                                      _formatMarkedTime(
-                                                        r['time'],
-                                                      ),
-                                                      style: TextStyle(
-                                                        color: Colors.grey[600],
-                                                        fontSize: 12,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                              const SizedBox(width: 6),
-                                              IconButton(
-                                                onPressed: studentEmail.isEmpty
-                                                    ? null
-                                                    : () =>
-                                                          _toggleAttendanceFromReport(
-                                                            sessionId:
-                                                                sessionId,
-                                                            studentEmail:
-                                                                studentEmail,
-                                                            currentPresent:
-                                                                hasAttended,
-                                                            onUpdated: () {
-                                                              setSheetState(
-                                                                () {},
-                                                              );
-                                                            },
-                                                          ),
-                                                icon: Icon(
-                                                  hasAttended
-                                                      ? Icons
-                                                            .remove_circle_outline
-                                                      : Icons
-                                                            .check_circle_outline,
-                                                  color: hasAttended
-                                                      ? Colors.red
-                                                      : Colors.green,
-                                                  size: 20,
-                                                ),
-                                                tooltip: hasAttended
-                                                    ? 'Mark Absent'
-                                                    : 'Mark Present',
-                                              ),
-                                            ],
+                                                  )
+                                                : null,
                                           ),
+                                          Positioned(
+                                            right: 0,
+                                            bottom: 0,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(1),
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Icon(
+                                                hasAttended
+                                                    ? Icons.check_circle
+                                                    : Icons.cancel,
+                                                size: 14,
+                                                color: hasAttended
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      title: Text(
+                                        r['name'] ?? '',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      subtitle: Text(studentEmail),
+                                      trailing: isBlocked
+                                          ? const Text(
+                                              'BLOCKED',
+                                              style: TextStyle(
+                                                color: Colors.red,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 10,
+                                              ),
+                                            )
+                                          : Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Column(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.end,
+                                                  children: [
+                                                    Text(
+                                                      hasAttended
+                                                          ? 'PRESENT'
+                                                          : 'ABSENT',
+                                                      style: TextStyle(
+                                                        color: hasAttended
+                                                            ? Colors.green
+                                                            : Colors.red,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 10,
+                                                      ),
+                                                    ),
+                                                    if (hasAttended) ...[
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        _formatMarkedTime(
+                                                          r['time'],
+                                                        ),
+                                                        style: TextStyle(
+                                                          color:
+                                                              Colors.grey[600],
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                                if (selectedEmails.isEmpty) ...[
+                                                  const SizedBox(width: 6),
+                                                  IconButton(
+                                                    onPressed:
+                                                        studentEmail.isEmpty
+                                                        ? null
+                                                        : () =>
+                                                              _toggleAttendanceFromReport(
+                                                                sessionId:
+                                                                    sessionId,
+                                                                studentEmail:
+                                                                    studentEmail,
+                                                                currentPresent:
+                                                                    hasAttended,
+                                                                onUpdated: () {
+                                                                  setSheetState(
+                                                                    () {},
+                                                                  );
+                                                                },
+                                                              ),
+                                                    icon: Icon(
+                                                      hasAttended
+                                                          ? Icons
+                                                                .remove_circle_outline
+                                                          : Icons
+                                                                .check_circle_outline,
+                                                      color: hasAttended
+                                                          ? Colors.red
+                                                          : Colors.green,
+                                                      size: 20,
+                                                    ),
+                                                    tooltip: hasAttended
+                                                        ? 'Mark Absent'
+                                                        : 'Mark Present',
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                    ),
                                   );
                                 },
                               ),
@@ -2211,24 +2554,46 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
 
   Widget _buildStatCard(String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
         children: [
           Text(
             value,
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
               color: color,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
             ),
           ),
           Text(label, style: TextStyle(color: color, fontSize: 12)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCircleAction({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+    String? tooltip,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: color, size: 20),
+        onPressed: onPressed,
+        tooltip: tooltip,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
       ),
     );
   }
@@ -2292,7 +2657,8 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
     for (final student in students) {
       final email = (student['email'] ?? '').toString().trim().toLowerCase();
       if (email.isEmpty) continue;
-      emailToPrefix[email] = 'student_profile__${_sanitizeStudentEmail(email)}__';
+      emailToPrefix[email] =
+          'student_profile__${_sanitizeStudentEmail(email)}__';
     }
     if (emailToPrefix.isEmpty) return <String, String>{};
 
@@ -2309,7 +2675,8 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
           final prefix = entry.value;
           if (!file.name.startsWith(prefix)) continue;
           final existing = latestFileByEmail[email];
-          if (existing == null || file.$createdAt.compareTo(existing.$createdAt) > 0) {
+          if (existing == null ||
+              file.$createdAt.compareTo(existing.$createdAt) > 0) {
             latestFileByEmail[email] = file;
           }
           break;
@@ -2472,11 +2839,9 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
       selectedEndTime!.hour,
       selectedEndTime!.minute,
     );
-
-    if (!endDT.isAfter(startDT)) {
-      _showMsg('Error: End time must be after start time');
-      return;
-    }
+    final normalizedEndDT = !endDT.isAfter(startDT)
+        ? endDT.add(const Duration(days: 1))
+        : endDT;
     // STRICT VALIDATION for CREATE: cannot select past
     if (!isEdit && startDT.isBefore(deviceNow)) {
       _showMsg('Error: Start time cannot be in the past');
@@ -2485,7 +2850,7 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
     final startStr =
         "${startDT.year}-${startDT.month.toString().padLeft(2, '0')}-${startDT.day.toString().padLeft(2, '0')} ${startDT.hour.toString().padLeft(2, '0')}:${startDT.minute.toString().padLeft(2, '0')}:00";
     final endStr =
-        "${endDT.year}-${endDT.month.toString().padLeft(2, '0')}-${endDT.day.toString().padLeft(2, '0')} ${endDT.hour.toString().padLeft(2, '0')}:${endDT.minute.toString().padLeft(2, '0')}:00";
+        "${normalizedEndDT.year}-${normalizedEndDT.month.toString().padLeft(2, '0')}-${normalizedEndDT.day.toString().padLeft(2, '0')} ${normalizedEndDT.hour.toString().padLeft(2, '0')}:${normalizedEndDT.minute.toString().padLeft(2, '0')}:00";
     Map<String, dynamic> result;
     if (isEdit) {
       result = await widget.apiService.updateAttendanceSession(
@@ -3212,7 +3577,8 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                                                 ),
                                               ),
                                             ],
-                                            if (remainingText.isNotEmpty) ...[
+                                            if (remainingText.isNotEmpty &&
+                                                !isPrivate) ...[
                                               const SizedBox(height: 2),
                                               Text(
                                                 remainingText,
@@ -3407,7 +3773,9 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
           final s = _students[index];
           final studentEmail = (s['email'] ?? '').toString();
           final studentImageUrl =
-              _studentProfileImageUrlByEmail[studentEmail.trim().toLowerCase()] ??
+              _studentProfileImageUrlByEmail[studentEmail
+                  .trim()
+                  .toLowerCase()] ??
               '';
           final studentName = (s['name'] ?? '').toString();
           final studentInitials = _studentInitialsFromName(studentName);
@@ -3440,10 +3808,7 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                                   fontWeight: FontWeight.w700,
                                 ),
                               )
-                            : const Icon(
-                                Icons.person,
-                                color: Colors.green,
-                              )),
+                            : const Icon(Icons.person, color: Colors.green)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -3832,11 +4197,15 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
 
     final safeCode = courseCode.isEmpty ? 'course' : courseCode;
     final safeSession = courseSession.isEmpty ? 'session' : courseSession;
-    final fileName = 'Attendance_${safeCode}_$safeSession.pdf';
-    final pdfBytes = await pdfDoc.save();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = 'Attendance_${safeCode}_${safeSession}_$timestamp.pdf';
 
-    final safeFileName = fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    // Aggressively sanitize filename: keep only alphanumeric and dots
+    final safeFileName = fileName.replaceAll(RegExp(r'[^\w\.]'), '_');
+
     try {
+      final pdfBytes = await pdfDoc.save();
+
       if (kIsWeb) {
         await FileSaver.instance.saveFile(
           name: safeFileName,
@@ -3845,20 +4214,33 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
           mimeType: MimeType.other,
         );
       } else {
-        final downloadsPath =
-            await ExternalPath.getExternalStoragePublicDirectory(
-              ExternalPath.DIRECTORY_DOWNLOAD,
-            );
-        final targetDir = Directory('$downloadsPath/PSTU_BLC_Attendance');
-        if (!await targetDir.exists()) {
-          await targetDir.create(recursive: true);
+        // Try direct save first
+        try {
+          final downloadsPath =
+              await ExternalPath.getExternalStoragePublicDirectory(
+                ExternalPath.DIRECTORY_DOWNLOAD,
+              );
+          final targetFile = File('$downloadsPath/$safeFileName');
+          await targetFile.writeAsBytes(pdfBytes, flush: true);
+        } catch (ioErr) {
+          // Fallback to Folder Picker
+          _showMsg('Please select a folder to save the report');
+          String? selectedDirectory =
+              await FilePicker.platform.getDirectoryPath();
+
+          if (selectedDirectory != null) {
+            final targetFile = File('$selectedDirectory/$safeFileName');
+            await targetFile.writeAsBytes(pdfBytes, flush: true);
+          } else {
+            if (!mounted) return;
+            _showMsg('Download cancelled.');
+            return;
+          }
         }
-        final targetFile = File('${targetDir.path}/$safeFileName');
-        await targetFile.writeAsBytes(pdfBytes, flush: true);
       }
     } catch (e) {
       if (!mounted) return;
-      _showMsg('Failed to download report: $e');
+      _showMsg('Failed to process report: $e');
       return;
     }
 
@@ -3873,6 +4255,8 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
       initialIndex: 0,
       child: Scaffold(
         appBar: AppBar(
+          centerTitle: true,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
           title: Text(
             widget.course['course_name']?.toString() ?? 'Course Detail',
           ),
@@ -3899,15 +4283,11 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
               userName: (widget.course['teacher_name'] ?? '').toString(),
               apiService: widget.apiService,
             ),
-            RefreshIndicator(
-              onRefresh: _loadAll,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 220),
-                  Center(child: Text('Assignments feature coming soon!')),
-                ],
-              ),
+            TeacherAssignmentSection(
+              courseId: _courseId,
+              teacherEmail: widget.teacherEmail,
+              teacherName: (widget.course['teacher_name'] ?? '').toString(),
+              studentProfileImageUrlByEmail: _studentProfileImageUrlByEmail,
             ),
             CourseMaterialsSection(
               courseId: _courseId,
@@ -3916,7 +4296,7 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
               userRole: 'teacher',
               canDeleteAny: true,
               canUpload: true,
-               courseName: (widget.course['course_name'] ?? '').toString(),
+              courseName: (widget.course['course_name'] ?? '').toString(),
             ),
             _buildStudents(),
             TeacherCourseResultSection(

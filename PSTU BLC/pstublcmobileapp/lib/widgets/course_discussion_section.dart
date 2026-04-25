@@ -24,13 +24,15 @@ class CourseDiscussionSection extends StatefulWidget {
   });
 
   @override
-  State<CourseDiscussionSection> createState() => _CourseDiscussionSectionState();
+  State<CourseDiscussionSection> createState() =>
+      _CourseDiscussionSectionState();
 }
 
 class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _messageFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _composerScrollController = ScrollController();
   TabController? _tabController;
   Timer? _refreshTimer;
   Timer? _highlightTimer;
@@ -48,12 +50,14 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
   int? _highlightedMessageId;
   List<Map<String, dynamic>> _messages = [];
   Map<String, String> _avatarUrlByKey = {};
+  final Map<String, String> _userDirectory = {};
 
   @override
   void initState() {
     super.initState();
     _messageController.addListener(_onComposerChanged);
     _scrollController.addListener(_onScrollChanged);
+    _loadUserDirectory();
     _loadMessages(stickToLatest: true);
     _refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (!mounted) return;
@@ -80,6 +84,7 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     _scrollController.removeListener(_onScrollChanged);
     _messageController.dispose();
     _messageFocusNode.dispose();
+    _composerScrollController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -102,7 +107,8 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
   void _onScrollChanged() {
     if (!_scrollController.hasClients || !mounted) return;
     final remaining =
-        _scrollController.position.maxScrollExtent - _scrollController.position.pixels;
+        _scrollController.position.maxScrollExtent -
+        _scrollController.position.pixels;
     final shouldShow = remaining > 140;
     if (shouldShow != _showScrollToBottom) {
       setState(() => _showScrollToBottom = shouldShow);
@@ -125,8 +131,7 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     final text = _messageController.text.trim();
     final bool nextCanSubmit;
     if (_editingMessageId != null) {
-      nextCanSubmit =
-          text.isNotEmpty && text != _editingOriginalText.trim();
+      nextCanSubmit = text.isNotEmpty && text != _editingOriginalText.trim();
     } else {
       nextCanSubmit = text.isNotEmpty;
     }
@@ -158,8 +163,14 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     if (messageId <= 0) return;
 
     final senderName = (msg['sender_name'] ?? '').toString().trim();
-    final senderRole = (msg['sender_role'] ?? '').toString().trim().toLowerCase();
-    final senderEmail = (msg['sender_email'] ?? '').toString().trim().toLowerCase();
+    final senderRole = (msg['sender_role'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final senderEmail = (msg['sender_email'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     final text = (msg['message'] ?? '').toString().trim();
     final isMe = senderEmail == widget.userEmail.trim().toLowerCase();
 
@@ -170,8 +181,8 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
       _replyToSenderName = isMe
           ? 'You'
           : (senderRole == 'teacher'
-              ? 'Teacher'
-              : (senderName.isNotEmpty ? senderName : 'Student'));
+                ? 'Teacher'
+                : (senderName.isNotEmpty ? senderName : 'Student'));
       _replyToText = text;
     });
 
@@ -234,16 +245,68 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
   String _initials(String name, {String fallback = ''}) {
     final normalized = name.trim();
     if (normalized.isNotEmpty) {
-      final parts = normalized.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+      final parts = normalized
+          .split(RegExp(r'\s+'))
+          .where((p) => p.isNotEmpty)
+          .toList();
       if (parts.isNotEmpty) {
         if (parts.length == 1) {
           final one = parts.first;
-          return one.length >= 2 ? one.substring(0, 2).toUpperCase() : one.substring(0, 1).toUpperCase();
+          return one.length >= 2
+              ? one.substring(0, 2).toUpperCase()
+              : one.substring(0, 1).toUpperCase();
         }
         return (parts[0][0] + parts[1][0]).toUpperCase();
       }
     }
-    return fallback.isNotEmpty ? fallback.substring(0, fallback.length >= 2 ? 2 : 1).toUpperCase() : 'U';
+    return fallback.isNotEmpty
+        ? fallback.substring(0, fallback.length >= 2 ? 2 : 1).toUpperCase()
+        : 'U';
+  }
+
+  bool _isRolePlaceholderName(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'teacher' ||
+        normalized == 'student' ||
+        normalized == 'user';
+  }
+
+  Future<void> _loadUserDirectory() async {
+    final result = await widget.apiService.getCourseRecipients(
+      courseId: widget.courseId,
+      email: widget.userEmail,
+      role: widget.userRole,
+    );
+    if (!mounted) return;
+    if (result['success'] == true) {
+      final Map<String, String> newDirectory = {};
+      final teacher = result['teacher'] is Map
+          ? Map<String, dynamic>.from(result['teacher'] as Map)
+          : <String, dynamic>{};
+      final teacherEmail = (teacher['email'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final teacherName = (teacher['name'] ?? '').toString().trim();
+      if (teacherEmail.isNotEmpty && teacherName.isNotEmpty) {
+        newDirectory[teacherEmail] = teacherName;
+      }
+      final students = (result['students'] as List? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      for (final student in students) {
+        final sName = (student['name'] ?? '').toString().trim();
+        final sEmail = (student['email'] ?? '').toString().trim().toLowerCase();
+        if (sEmail.isNotEmpty && sName.isNotEmpty) {
+          newDirectory[sEmail] = sName;
+        }
+      }
+      setState(() {
+        _userDirectory
+          ..clear()
+          ..addAll(newDirectory);
+      });
+    }
   }
 
   Future<void> _loadMessages({
@@ -280,7 +343,9 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     } else {
       if (!silent) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['message'] ?? 'Failed to load discussion')),
+          SnackBar(
+            content: Text(result['message'] ?? 'Failed to load discussion'),
+          ),
         );
       }
       if (!mounted) return;
@@ -288,11 +353,19 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     }
   }
 
-  Future<Map<String, String>> _loadAvatars(List<Map<String, dynamic>> messages) async {
+  Future<Map<String, String>> _loadAvatars(
+    List<Map<String, dynamic>> messages,
+  ) async {
     final senderPrefixes = <String, String>{};
     for (final message in messages) {
-      final role = (message['sender_role'] ?? '').toString().trim().toLowerCase();
-      final email = (message['sender_email'] ?? '').toString().trim().toLowerCase();
+      final role = (message['sender_role'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final email = (message['sender_email'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
       if (email.isEmpty || (role != 'teacher' && role != 'student')) continue;
       senderPrefixes['$role|$email'] = _profilePrefix(role, email);
     }
@@ -311,7 +384,8 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
           final prefix = entry.value;
           if (!file.name.startsWith(prefix)) continue;
           final existing = latestByKey[key];
-          if (existing == null || file.$createdAt.compareTo(existing.$createdAt) > 0) {
+          if (existing == null ||
+              file.$createdAt.compareTo(existing.$createdAt) > 0) {
             latestByKey[key] = file;
           }
           break;
@@ -347,6 +421,8 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
             role: widget.userRole,
             senderName: widget.userName,
             message: text,
+            targetAudience: 'everyone',
+            targetStudentEmail: null,
             replyToMessageId: _replyToMessageId,
             replyToSenderName: _replyToSenderName,
             replyToMessage: _replyToText,
@@ -354,8 +430,7 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     if (!mounted) return;
     if (result['success'] == true) {
       if (isEditing && editingId != null) {
-        final updatedFromApi =
-            result['data'] is Map<String, dynamic>
+        final updatedFromApi = result['data'] is Map<String, dynamic>
             ? Map<String, dynamic>.from(result['data'] as Map<String, dynamic>)
             : null;
         setState(() {
@@ -466,10 +541,7 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
         });
         lastDay = dayKey;
       }
-      items.add({
-        'type': 'message',
-        'data': msg,
-      });
+      items.add({'type': 'message', 'data': msg});
     }
     return items;
   }
@@ -617,7 +689,7 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
             children: [
               Positioned.fill(
                 child: _loading
-                        ? const Center(child: CircularProgressIndicator())
+                    ? const Center(child: CircularProgressIndicator())
                     : RefreshIndicator(
                         onRefresh: () => _loadMessages(),
                         child: _messages.isEmpty
@@ -625,9 +697,17 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 children: const [
                                   SizedBox(height: 120),
-                                  Icon(Icons.chat_bubble_outline, size: 72, color: Colors.grey),
+                                  Icon(
+                                    Icons.chat_bubble_outline,
+                                    size: 72,
+                                    color: Colors.grey,
+                                  ),
                                   SizedBox(height: 12),
-                                  Center(child: Text('No discussion messages yet. Start the conversation.')),
+                                  Center(
+                                    child: Text(
+                                      'No discussion messages yet. Start the conversation.',
+                                    ),
+                                  ),
                                 ],
                               )
                             : ListView.builder(
@@ -641,296 +721,598 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                                 ),
                                 itemCount: _buildTimelineItems().length,
                                 itemBuilder: (context, index) {
-                            final item = _buildTimelineItems()[index];
-                            if (item['type'] == 'date') {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                child: Center(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(color: Colors.green.withOpacity(0.22)),
-                                    ),
-                                    child: Text(
-                                      (item['label'] ?? '').toString(),
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black87,
+                                  final item = _buildTimelineItems()[index];
+                                  if (item['type'] == 'date') {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
                                       ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }
-
-                            final msg = Map<String, dynamic>.from(item['data'] as Map);
-                            final senderEmail = (msg['sender_email'] ?? '').toString().trim().toLowerCase();
-                            final senderRole = (msg['sender_role'] ?? '').toString().trim().toLowerCase();
-                            final senderName = (msg['sender_name'] ?? '').toString().trim();
-                            final messageId = int.tryParse((msg['id'] ?? '').toString()) ?? 0;
-                            final text = (msg['message'] ?? '').toString();
-                            final replyToMessageId = int.tryParse(
-                              (msg['reply_to_message_id'] ?? '').toString(),
-                            ) ?? 0;
-                            final replySender = (msg['reply_to_sender_name'] ?? '').toString().trim();
-                            final replyText = (msg['reply_to_message'] ?? '').toString().trim();
-                            final replySenderLower = replySender.toLowerCase();
-                            final currentUserName = widget.userName.trim().toLowerCase();
-                            final currentUserEmail = widget.userEmail.trim().toLowerCase();
-
-                            Map<String, dynamic>? repliedMessage;
-                            if (replyToMessageId > 0) {
-                              for (final row in _messages) {
-                                final rowId = int.tryParse((row['id'] ?? '').toString()) ?? 0;
-                                if (rowId == replyToMessageId) {
-                                  repliedMessage = row;
-                                  break;
-                                }
-                              }
-                            }
-
-                            final repliedSenderRole =
-                                (repliedMessage?['sender_role'] ?? '')
-                                    .toString()
-                                    .trim()
-                                    .toLowerCase();
-                            final repliedSenderEmail =
-                                (repliedMessage?['sender_email'] ?? '')
-                                    .toString()
-                                    .trim()
-                                    .toLowerCase();
-                            final repliedSenderName =
-                                (repliedMessage?['sender_name'] ?? '')
-                                    .toString()
-                                    .trim();
-                            final isRepliedMessageDeleted =
-                              replyToMessageId > 0 && repliedMessage == null;
-                            final replyPreviewText = isRepliedMessageDeleted
-                              ? 'Message deleted'
-                              : replyText;
-
-                            final targetIsCurrentUser = repliedSenderEmail.isNotEmpty
-                                ? repliedSenderEmail == currentUserEmail
-                                : (replySenderLower == 'you' ||
-                                      (currentUserName.isNotEmpty &&
-                                          (replySenderLower == currentUserName ||
-                                              repliedSenderName.toLowerCase() == currentUserName)));
-
-                            final repliedToLabel = targetIsCurrentUser
-                                ? 'you'
-                                : (repliedSenderRole == 'teacher' ||
-                                      replySenderLower == 'teacher'
-                                    ? 'Teacher'
-                                    : (repliedSenderName.isNotEmpty
-                                        ? repliedSenderName
-                                        : (replySender.isNotEmpty ? replySender : 'message')));
-                            final isEdited =
-                              msg['is_edited'] == true ||
-                              msg['is_edited']?.toString() == '1';
-                            final createdAt = msg['created_at'];
-                            final isMe = senderEmail.isNotEmpty && senderEmail == widget.userEmail.trim().toLowerCase();
-                            final isSelectedOwn =
-                              isMe && messageId > 0 && _selectedOwnMessageIds.contains(messageId);
-                            final key = '$senderRole|$senderEmail';
-                            final avatarUrl = _avatarUrlByKey[key];
-                            final isTeacher = senderRole == 'teacher';
-                            final bubbleColor = isTeacher
-                                ? Colors.green.withOpacity(isMe ? 0.16 : 0.10)
-                                : Colors.blueAccent.withOpacity(isMe ? 0.16 : 0.08);
-                            final borderColor = isTeacher
-                                ? Colors.green.withOpacity(0.18)
-                                : Colors.blueAccent.withOpacity(0.16);
-                            final align = isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-                            final rowAlign = isMe ? MainAxisAlignment.end : MainAxisAlignment.start;
-                            final displayName = isMe
-                              ? 'You'
-                              : (isTeacher
-                                  ? 'Teacher'
-                                  : (senderName.isNotEmpty ? senderName : 'Student'));
-                            final isHighlighted =
-                              messageId > 0 && _highlightedMessageId == messageId;
-                            final highlightedBubbleColor = isTeacher
-                              ? Colors.green.withOpacity(0.24)
-                              : Colors.blueAccent.withOpacity(0.22);
-                            final highlightedBorderColor = isTeacher
-                              ? Colors.green.withOpacity(0.55)
-                              : Colors.blueAccent.withOpacity(0.45);
-
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 140),
-                              curve: Curves.easeOut,
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
-                              decoration: BoxDecoration(
-                                color: isSelectedOwn
-                                    ? Colors.blue.withOpacity(0.10)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                  mainAxisAlignment: rowAlign,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    if (!isMe) ...[
-                                      GestureDetector(
-                                        onTap: () {
-                                          _showSenderProfile(
-                                            avatarUrl: avatarUrl,
-                                            name: senderName,
-                                            email: senderEmail,
-                                            role: senderRole,
-                                          );
-                                        },
-                                        child: _buildAvatar(avatarUrl, senderName, senderRole),
-                                      ),
-                                      const SizedBox(width: 10),
-                                    ],
-                                    Flexible(
-                                      child: Column(
-                                        crossAxisAlignment: align,
-                                        children: [
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                displayName,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 13,
-                                                ),
-                                              ),
-                                              if (replyText.isNotEmpty) ...[
-                                                const SizedBox(width: 8),
-                                                const Icon(
-                                                  Icons.reply_rounded,
-                                                  size: 14,
-                                                  color: Colors.black54,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Flexible(
-                                                  child: Text(
-                                                    'replied to $repliedToLabel',
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: Colors.black54,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
+                                      child: Center(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 7,
                                           ),
-                                          const SizedBox(height: 4),
-                                          Dismissible(
-                                            key: ValueKey('discussion_swipe_${msg['id']}_${msg['created_at']}'),
-                                            direction: _selectionMode
-                                                ? DismissDirection.none
-                                                : (isMe
-                                                      ? DismissDirection.endToStart
-                                                      : DismissDirection.startToEnd),
-                                            dismissThresholds: const {
-                                              DismissDirection.startToEnd: 0.28,
-                                              DismissDirection.endToStart: 0.28,
-                                            },
-                                            confirmDismiss: (_) async {
-                                              if (_selectionMode) return false;
-                                              _startReplyToMessage(msg);
-                                              return false;
-                                            },
-                                            background: Container(
-                                              alignment: isMe
-                                                  ? Alignment.centerRight
-                                                  : Alignment.centerLeft,
-                                              padding: const EdgeInsets.symmetric(horizontal: 18),
-                                              child: Icon(
-                                                Icons.reply_rounded,
-                                                color: Colors.green.shade600,
-                                                size: 22,
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.withOpacity(
+                                              0.12,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.green.withOpacity(
+                                                0.22,
                                               ),
                                             ),
-                                            child: replyText.isNotEmpty
-                                                ? Column(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    crossAxisAlignment: align,
-                                                    children: [
-                                                      GestureDetector(
-                                                        onTap: () {
-                                                          final replyId = int.tryParse(
-                                                            (msg['reply_to_message_id'] ?? '').toString(),
-                                                          ) ?? 0;
-                                                          if (replyId > 0) {
-                                                            _scrollToMessage(replyId);
-                                                          }
-                                                        },
-                                                        child: Container(
-                                                          constraints: const BoxConstraints(maxWidth: 320),
-                                                          padding: const EdgeInsets.all(12),
-                                                          decoration: BoxDecoration(
-                                                            color: Colors.grey.withOpacity(0.10),
-                                                            borderRadius: BorderRadius.circular(14),
-                                                            border: Border.all(
-                                                              color: Colors.grey.withOpacity(0.20),
-                                                            ),
-                                                          ),
-                                                          child: Column(
-                                                            mainAxisSize: MainAxisSize.min,
-                                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                                            children: [
-                                                              Text(
-                                                                replyPreviewText,
-                                                                maxLines: 3,
-                                                                overflow: TextOverflow.ellipsis,
-                                                                style: TextStyle(
-                                                                  fontSize: 13,
-                                                                  height: 1.3,
-                                                                  color: Colors.black54,
-                                                                  fontStyle: isRepliedMessageDeleted
-                                                                      ? FontStyle.italic
-                                                                      : FontStyle.normal,
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
+                                          ),
+                                          child: Text(
+                                            (item['label'] ?? '').toString(),
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  final msg = Map<String, dynamic>.from(
+                                    item['data'] as Map,
+                                  );
+                                  final senderEmail =
+                                      (msg['sender_email'] ?? '')
+                                          .toString()
+                                          .trim()
+                                          .toLowerCase();
+                                  final senderRole = (msg['sender_role'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .toLowerCase();
+                                  final senderName = (msg['sender_name'] ?? '')
+                                      .toString()
+                                      .trim();
+                                  final messageId =
+                                      int.tryParse(
+                                        (msg['id'] ?? '').toString(),
+                                      ) ??
+                                      0;
+                                  final text = (msg['message'] ?? '')
+                                      .toString();
+                                  final replyToMessageId =
+                                      int.tryParse(
+                                        (msg['reply_to_message_id'] ?? '')
+                                            .toString(),
+                                      ) ??
+                                      0;
+                                  final replySender =
+                                      (msg['reply_to_sender_name'] ?? '')
+                                          .toString()
+                                          .trim();
+                                  final replyText =
+                                      (msg['reply_to_message'] ?? '')
+                                          .toString()
+                                          .trim();
+                                  final replySenderLower = replySender
+                                      .toLowerCase();
+                                  final currentUserName = widget.userName
+                                      .trim()
+                                      .toLowerCase();
+                                  final currentUserEmail = widget.userEmail
+                                      .trim()
+                                      .toLowerCase();
+
+                                  Map<String, dynamic>? repliedMessage;
+                                  if (replyToMessageId > 0) {
+                                    for (final row in _messages) {
+                                      final rowId =
+                                          int.tryParse(
+                                            (row['id'] ?? '').toString(),
+                                          ) ??
+                                          0;
+                                      if (rowId == replyToMessageId) {
+                                        repliedMessage = row;
+                                        break;
+                                      }
+                                    }
+                                  }
+
+                                  final repliedSenderRole =
+                                      (repliedMessage?['sender_role'] ?? '')
+                                          .toString()
+                                          .trim()
+                                          .toLowerCase();
+                                  final repliedSenderEmail =
+                                      (repliedMessage?['sender_email'] ?? '')
+                                          .toString()
+                                          .trim()
+                                          .toLowerCase();
+                                  final repliedSenderName =
+                                      (repliedMessage?['sender_name'] ?? '')
+                                          .toString()
+                                          .trim();
+                                  final isRepliedMessageDeleted =
+                                      replyToMessageId > 0 &&
+                                      repliedMessage == null;
+                                  final replyPreviewText =
+                                      isRepliedMessageDeleted
+                                      ? 'Message deleted'
+                                      : replyText;
+
+                                  final targetIsCurrentUser =
+                                      repliedSenderEmail.isNotEmpty
+                                      ? repliedSenderEmail == currentUserEmail
+                                      : (replySenderLower == 'you' ||
+                                            (currentUserName.isNotEmpty &&
+                                                (replySenderLower ==
+                                                        currentUserName ||
+                                                    repliedSenderName
+                                                            .toLowerCase() ==
+                                                        currentUserName)));
+
+                                  final repliedToLabel = targetIsCurrentUser
+                                      ? 'you'
+                                      : (repliedSenderRole == 'teacher' ||
+                                                replySenderLower == 'teacher'
+                                            ? 'Teacher'
+                                            : (repliedSenderName.isNotEmpty
+                                                  ? repliedSenderName
+                                                  : (replySender.isNotEmpty
+                                                        ? replySender
+                                                        : 'message')));
+                                  final isEdited =
+                                      msg['is_edited'] == true ||
+                                      msg['is_edited']?.toString() == '1';
+                                  final createdAt = msg['created_at'];
+                                  final isMe =
+                                      senderEmail.isNotEmpty &&
+                                      senderEmail ==
+                                          widget.userEmail.trim().toLowerCase();
+                                  final isSelectedOwn =
+                                      isMe &&
+                                      messageId > 0 &&
+                                      _selectedOwnMessageIds.contains(
+                                        messageId,
+                                      );
+                                  final key = '$senderRole|$senderEmail';
+                                  final avatarUrl = _avatarUrlByKey[key];
+                                  final isTeacher = senderRole == 'teacher';
+                                  final bubbleColor = isTeacher
+                                      ? Colors.green.withOpacity(
+                                          isMe ? 0.16 : 0.10,
+                                        )
+                                      : Colors.blueAccent.withOpacity(
+                                          isMe ? 0.16 : 0.08,
+                                        );
+                                  final borderColor = isTeacher
+                                      ? Colors.green.withOpacity(0.18)
+                                      : Colors.blueAccent.withOpacity(0.16);
+                                  final align = isMe
+                                      ? CrossAxisAlignment.end
+                                      : CrossAxisAlignment.start;
+                                  final rowAlign = isMe
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start;
+                                  final displayName = isTeacher
+                                      ? 'Teacher'
+                                      : (isMe
+                                            ? 'You'
+                                            : (senderName.isNotEmpty
+                                                  ? senderName
+                                                  : 'Student'));
+                                  final isHighlighted =
+                                      messageId > 0 &&
+                                      _highlightedMessageId == messageId;
+                                  final highlightedBubbleColor = isTeacher
+                                      ? Colors.green.withOpacity(0.24)
+                                      : Colors.blueAccent.withOpacity(0.22);
+                                  final highlightedBorderColor = isTeacher
+                                      ? Colors.green.withOpacity(0.55)
+                                      : Colors.blueAccent.withOpacity(0.45);
+
+                                  return AnimatedContainer(
+                                    duration: const Duration(milliseconds: 140),
+                                    curve: Curves.easeOut,
+                                    margin: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 6,
+                                      horizontal: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isSelectedOwn
+                                          ? Colors.blue.withOpacity(0.10)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: rowAlign,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        if (!isMe) ...[
+                                          GestureDetector(
+                                            onTap: () {
+                                              _showSenderProfile(
+                                                avatarUrl: avatarUrl,
+                                                name: senderName,
+                                                email: senderEmail,
+                                                role: senderRole,
+                                              );
+                                            },
+                                            child: _buildAvatar(
+                                              avatarUrl,
+                                              displayName,
+                                              senderRole,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                        ],
+                                        Flexible(
+                                          child: Column(
+                                            crossAxisAlignment: align,
+                                            children: [
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Tooltip(
+                                                    message:
+                                                        senderEmail.isNotEmpty
+                                                        ? senderEmail
+                                                        : 'Unknown Email',
+                                                    child: Text(
+                                                      displayName,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (replyText.isNotEmpty) ...[
+                                                    const SizedBox(width: 8),
+                                                    const Icon(
+                                                      Icons.reply_rounded,
+                                                      size: 14,
+                                                      color: Colors.black54,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Flexible(
+                                                      child: Text(
+                                                        'replied to $repliedToLabel',
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          color: Colors.black54,
                                                         ),
                                                       ),
-                                                      AnimatedSlide(
-                                                        duration: const Duration(milliseconds: 180),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Dismissible(
+                                                key: ValueKey(
+                                                  'discussion_swipe_${msg['id']}_${msg['created_at']}',
+                                                ),
+                                                direction: _selectionMode
+                                                    ? DismissDirection.none
+                                                    : (isMe
+                                                          ? DismissDirection
+                                                                .endToStart
+                                                          : DismissDirection
+                                                                .startToEnd),
+                                                dismissThresholds: const {
+                                                  DismissDirection.startToEnd:
+                                                      0.28,
+                                                  DismissDirection.endToStart:
+                                                      0.28,
+                                                },
+                                                confirmDismiss: (_) async {
+                                                  if (_selectionMode)
+                                                    return false;
+                                                  _startReplyToMessage(msg);
+                                                  return false;
+                                                },
+                                                background: Container(
+                                                  alignment: isMe
+                                                      ? Alignment.centerRight
+                                                      : Alignment.centerLeft,
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 18,
+                                                      ),
+                                                  child: Icon(
+                                                    Icons.reply_rounded,
+                                                    color:
+                                                        Colors.green.shade600,
+                                                    size: 22,
+                                                  ),
+                                                ),
+                                                child: replyText.isNotEmpty
+                                                    ? Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        crossAxisAlignment:
+                                                            align,
+                                                        children: [
+                                                          GestureDetector(
+                                                            onTap: () {
+                                                              final replyId =
+                                                                  int.tryParse(
+                                                                    (msg['reply_to_message_id'] ??
+                                                                            '')
+                                                                        .toString(),
+                                                                  ) ??
+                                                                  0;
+                                                              if (replyId > 0) {
+                                                                _scrollToMessage(
+                                                                  replyId,
+                                                                );
+                                                              }
+                                                            },
+                                                            child: Container(
+                                                              constraints:
+                                                                  const BoxConstraints(
+                                                                    maxWidth:
+                                                                        320,
+                                                                  ),
+                                                              padding:
+                                                                  const EdgeInsets.all(
+                                                                    12,
+                                                                  ),
+                                                              decoration: BoxDecoration(
+                                                                color: Colors
+                                                                    .grey
+                                                                    .withOpacity(
+                                                                      0.10,
+                                                                    ),
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      14,
+                                                                    ),
+                                                                border: Border.all(
+                                                                  color: Colors
+                                                                      .grey
+                                                                      .withOpacity(
+                                                                        0.20,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                              child: Column(
+                                                                mainAxisSize:
+                                                                    MainAxisSize
+                                                                        .min,
+                                                                crossAxisAlignment:
+                                                                    CrossAxisAlignment
+                                                                        .start,
+                                                                children: [
+                                                                  Text(
+                                                                    replyPreviewText,
+                                                                    maxLines: 3,
+                                                                    overflow:
+                                                                        TextOverflow
+                                                                            .ellipsis,
+                                                                    style: TextStyle(
+                                                                      fontSize:
+                                                                          13,
+                                                                      height:
+                                                                          1.3,
+                                                                      color: Colors
+                                                                          .black54,
+                                                                      fontStyle:
+                                                                          isRepliedMessageDeleted
+                                                                          ? FontStyle.italic
+                                                                          : FontStyle.normal,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          AnimatedSlide(
+                                                            duration:
+                                                                const Duration(
+                                                                  milliseconds:
+                                                                      180,
+                                                                ),
+                                                            curve:
+                                                                Curves.easeOut,
+                                                            offset:
+                                                                isHighlighted
+                                                                ? const Offset(
+                                                                    0,
+                                                                    -0.055,
+                                                                  )
+                                                                : const Offset(
+                                                                    0,
+                                                                    -0.04,
+                                                                  ),
+                                                            child: GestureDetector(
+                                                              behavior:
+                                                                  HitTestBehavior
+                                                                      .opaque,
+                                                              onTap:
+                                                                  (_selectionMode &&
+                                                                      isMe)
+                                                                  ? () => _toggleOwnMessageSelection(
+                                                                      messageId,
+                                                                    )
+                                                                  : null,
+                                                              onLongPress: isMe
+                                                                  ? () =>
+                                                                        _showOwnMessageActions(
+                                                                          msg,
+                                                                        )
+                                                                  : null,
+                                                              child: AnimatedContainer(
+                                                                duration:
+                                                                    const Duration(
+                                                                      milliseconds:
+                                                                          180,
+                                                                    ),
+                                                                curve: Curves
+                                                                    .easeOut,
+                                                                constraints:
+                                                                    const BoxConstraints(
+                                                                      maxWidth:
+                                                                          320,
+                                                                    ),
+                                                                padding:
+                                                                    const EdgeInsets.all(
+                                                                      12,
+                                                                    ),
+                                                                decoration: BoxDecoration(
+                                                                  color:
+                                                                      isSelectedOwn
+                                                                      ? Colors
+                                                                            .blue
+                                                                            .withOpacity(
+                                                                              0.20,
+                                                                            )
+                                                                      : (isHighlighted
+                                                                            ? highlightedBubbleColor
+                                                                            : bubbleColor),
+                                                                  borderRadius: BorderRadius.only(
+                                                                    topLeft:
+                                                                        const Radius.circular(
+                                                                          16,
+                                                                        ),
+                                                                    topRight:
+                                                                        const Radius.circular(
+                                                                          16,
+                                                                        ),
+                                                                    bottomLeft:
+                                                                        Radius.circular(
+                                                                          isMe
+                                                                              ? 16
+                                                                              : 4,
+                                                                        ),
+                                                                    bottomRight:
+                                                                        Radius.circular(
+                                                                          isMe
+                                                                              ? 4
+                                                                              : 16,
+                                                                        ),
+                                                                  ),
+                                                                  border: Border.all(
+                                                                    color:
+                                                                        isSelectedOwn
+                                                                        ? Colors.blue.withOpacity(
+                                                                            0.46,
+                                                                          )
+                                                                        : (isHighlighted
+                                                                              ? highlightedBorderColor
+                                                                              : borderColor),
+                                                                  ),
+                                                                ),
+                                                                child: Text(
+                                                                  text,
+                                                                  style:
+                                                                      const TextStyle(
+                                                                        fontSize:
+                                                                            15,
+                                                                        height:
+                                                                            1.35,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      )
+                                                    : AnimatedSlide(
+                                                        duration:
+                                                            const Duration(
+                                                              milliseconds: 180,
+                                                            ),
                                                         curve: Curves.easeOut,
                                                         offset: isHighlighted
-                                                            ? const Offset(0, -0.055)
-                                                            : const Offset(0, -0.04),
+                                                            ? const Offset(
+                                                                0,
+                                                                -0.03,
+                                                              )
+                                                            : Offset.zero,
                                                         child: GestureDetector(
-                                                          behavior: HitTestBehavior.opaque,
-                                                          onTap: (_selectionMode && isMe)
-                                                            ? () => _toggleOwnMessageSelection(messageId)
+                                                          behavior:
+                                                              HitTestBehavior
+                                                                  .opaque,
+                                                          onTap:
+                                                              (_selectionMode &&
+                                                                  isMe)
+                                                              ? () =>
+                                                                    _toggleOwnMessageSelection(
+                                                                      messageId,
+                                                                    )
                                                               : null,
                                                           onLongPress: isMe
-                                                              ? () => _showOwnMessageActions(msg)
+                                                              ? () =>
+                                                                    _showOwnMessageActions(
+                                                                      msg,
+                                                                    )
                                                               : null,
                                                           child: AnimatedContainer(
-                                                            duration: const Duration(milliseconds: 180),
-                                                            curve: Curves.easeOut,
-                                                            constraints: const BoxConstraints(maxWidth: 320),
-                                                            padding: const EdgeInsets.all(12),
+                                                            duration:
+                                                                const Duration(
+                                                                  milliseconds:
+                                                                      180,
+                                                                ),
+                                                            curve:
+                                                                Curves.easeOut,
+                                                            constraints:
+                                                                const BoxConstraints(
+                                                                  maxWidth: 320,
+                                                                ),
+                                                            padding:
+                                                                const EdgeInsets.all(
+                                                                  12,
+                                                                ),
                                                             decoration: BoxDecoration(
-                                                              color: isSelectedOwn
-                                                                  ? Colors.blue.withOpacity(0.20)
+                                                              color:
+                                                                  isSelectedOwn
+                                                                  ? Colors.blue
+                                                                        .withOpacity(
+                                                                          0.20,
+                                                                        )
                                                                   : (isHighlighted
                                                                         ? highlightedBubbleColor
                                                                         : bubbleColor),
                                                               borderRadius: BorderRadius.only(
-                                                                topLeft: const Radius.circular(16),
-                                                                topRight: const Radius.circular(16),
-                                                                bottomLeft: Radius.circular(isMe ? 16 : 4),
-                                                                bottomRight: Radius.circular(isMe ? 4 : 16),
+                                                                topLeft:
+                                                                    const Radius.circular(
+                                                                      16,
+                                                                    ),
+                                                                topRight:
+                                                                    const Radius.circular(
+                                                                      16,
+                                                                    ),
+                                                                bottomLeft:
+                                                                    Radius.circular(
+                                                                      isMe
+                                                                          ? 16
+                                                                          : 4,
+                                                                    ),
+                                                                bottomRight:
+                                                                    Radius.circular(
+                                                                      isMe
+                                                                          ? 4
+                                                                          : 16,
+                                                                    ),
                                                               ),
                                                               border: Border.all(
-                                                                color: isSelectedOwn
-                                                                    ? Colors.blue.withOpacity(0.46)
+                                                                color:
+                                                                    isSelectedOwn
+                                                                    ? Colors
+                                                                          .blue
+                                                                          .withOpacity(
+                                                                            0.46,
+                                                                          )
                                                                     : (isHighlighted
                                                                           ? highlightedBorderColor
                                                                           : borderColor),
@@ -938,110 +1320,67 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                                                             ),
                                                             child: Text(
                                                               text,
-                                                              style: const TextStyle(
-                                                                fontSize: 15,
-                                                                height: 1.35,
-                                                              ),
+                                                              style:
+                                                                  const TextStyle(
+                                                                    fontSize:
+                                                                        15,
+                                                                    height:
+                                                                        1.35,
+                                                                  ),
                                                             ),
                                                           ),
                                                         ),
                                                       ),
-                                                    ],
-                                                  )
-                                                : AnimatedSlide(
-                                                    duration: const Duration(milliseconds: 180),
-                                                    curve: Curves.easeOut,
-                                                    offset: isHighlighted
-                                                        ? const Offset(0, -0.03)
-                                                        : Offset.zero,
-                                                    child: GestureDetector(
-                                                      behavior: HitTestBehavior.opaque,
-                                                      onTap: (_selectionMode && isMe)
-                                                        ? () => _toggleOwnMessageSelection(messageId)
-                                                          : null,
-                                                      onLongPress: isMe
-                                                          ? () => _showOwnMessageActions(msg)
-                                                          : null,
-                                                      child: AnimatedContainer(
-                                                        duration: const Duration(milliseconds: 180),
-                                                        curve: Curves.easeOut,
-                                                        constraints: const BoxConstraints(maxWidth: 320),
-                                                        padding: const EdgeInsets.all(12),
-                                                        decoration: BoxDecoration(
-                                                          color: isSelectedOwn
-                                                              ? Colors.blue.withOpacity(0.20)
-                                                              : (isHighlighted
-                                                                    ? highlightedBubbleColor
-                                                                    : bubbleColor),
-                                                          borderRadius: BorderRadius.only(
-                                                            topLeft: const Radius.circular(16),
-                                                            topRight: const Radius.circular(16),
-                                                            bottomLeft: Radius.circular(isMe ? 16 : 4),
-                                                            bottomRight: Radius.circular(isMe ? 4 : 16),
-                                                          ),
-                                                          border: Border.all(
-                                                            color: isSelectedOwn
-                                                                ? Colors.blue.withOpacity(0.46)
-                                                                : (isHighlighted
-                                                                      ? highlightedBorderColor
-                                                                      : borderColor),
-                                                          ),
-                                                        ),
-                                                        child: Text(
-                                                          text,
-                                                          style: const TextStyle(
-                                                            fontSize: 15,
-                                                            height: 1.35,
-                                                          ),
-                                                        ),
-                                                      ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    _formatTimestamp(createdAt),
+                                                    style: TextStyle(
+                                                      color: Colors.grey[600],
+                                                      fontSize: 11,
                                                     ),
                                                   ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                _formatTimestamp(createdAt),
-                                                style: TextStyle(
-                                                  color: Colors.grey[600],
-                                                  fontSize: 11,
-                                                ),
+                                                  if (isEdited) ...[
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'edited',
+                                                      style: TextStyle(
+                                                        color: Colors.grey[600],
+                                                        fontSize: 11,
+                                                        fontStyle:
+                                                            FontStyle.italic,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
                                               ),
-                                              if (isEdited) ...[
-                                                const SizedBox(width: 6),
-                                                Text(
-                                                  'edited',
-                                                  style: TextStyle(
-                                                    color: Colors.grey[600],
-                                                    fontSize: 11,
-                                                    fontStyle: FontStyle.italic,
-                                                  ),
-                                                ),
-                                              ],
                                             ],
                                           ),
+                                        ),
+                                        if (isMe) ...[
+                                          const SizedBox(width: 10),
+                                          GestureDetector(
+                                            onTap: () {
+                                              _showSenderProfile(
+                                                avatarUrl: avatarUrl,
+                                                name: senderName,
+                                                email: senderEmail,
+                                                role: senderRole,
+                                              );
+                                            },
+                                            child: _buildAvatar(
+                                              avatarUrl,
+                                              widget.userName,
+                                              senderRole,
+                                            ),
+                                          ),
                                         ],
-                                      ),
+                                      ],
                                     ),
-                                    if (isMe) ...[
-                                      const SizedBox(width: 10),
-                                      GestureDetector(
-                                        onTap: () {
-                                          _showSenderProfile(
-                                            avatarUrl: avatarUrl,
-                                            name: senderName,
-                                            email: senderEmail,
-                                            role: senderRole,
-                                          );
-                                        },
-                                        child: _buildAvatar(avatarUrl, senderName, senderRole),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                            );
+                                  );
                                 },
                               ),
                       ),
@@ -1051,9 +1390,14 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                   top: 10,
                   right: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.96),
+                      color: Theme.of(
+                        context,
+                      ).scaffoldBackgroundColor.withOpacity(0.96),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(color: Colors.grey.withOpacity(0.25)),
                     ),
@@ -1083,7 +1427,10 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                             iconSize: 18,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -1126,7 +1473,10 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                             iconSize: 18,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
-                            icon: const Icon(Icons.close, color: Colors.black87),
+                            icon: const Icon(
+                              Icons.close,
+                              color: Colors.black87,
+                            ),
                           ),
                         ),
                       ],
@@ -1140,12 +1490,16 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                 child: Center(
                   child: AnimatedScale(
                     duration: const Duration(milliseconds: 170),
-                    scale: _showScrollToBottom && !_loading && _messages.isNotEmpty
+                    scale:
+                        _showScrollToBottom && !_loading && _messages.isNotEmpty
                         ? 1
                         : 0,
                     child: AnimatedOpacity(
                       duration: const Duration(milliseconds: 170),
-                      opacity: _showScrollToBottom && !_loading && _messages.isNotEmpty
+                      opacity:
+                          _showScrollToBottom &&
+                              !_loading &&
+                              _messages.isNotEmpty
                           ? 1
                           : 0,
                       child: Material(
@@ -1153,12 +1507,26 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                         child: InkWell(
                           onTap: _scrollToBottom,
                           borderRadius: BorderRadius.circular(30),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            child: Icon(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.12),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                              border: Border.all(
+                                color: Colors.grey.withOpacity(0.1),
+                              ),
+                            ),
+                            child: const Icon(
                               Icons.arrow_downward_rounded,
-                              color: Colors.black,
-                              size: 44,
+                              color: Colors.black87,
+                              size: 26,
                             ),
                           ),
                         ),
@@ -1176,7 +1544,9 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
             decoration: BoxDecoration(
               color: Theme.of(context).scaffoldBackgroundColor,
-              border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.18))),
+              border: Border(
+                top: BorderSide(color: Colors.grey.withOpacity(0.18)),
+              ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -1190,19 +1560,29 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 6),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.green.withOpacity(0.10),
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.green.withOpacity(0.22)),
+                              border: Border.all(
+                                color: Colors.green.withOpacity(0.22),
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.edit_outlined, size: 15, color: Colors.green),
+                                const Icon(
+                                  Icons.edit_outlined,
+                                  size: 15,
+                                  color: Colors.green,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       const Text(
@@ -1248,19 +1628,29 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 6),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.green.withOpacity(0.10),
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.green.withOpacity(0.22)),
+                              border: Border.all(
+                                color: Colors.green.withOpacity(0.22),
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.reply_rounded, size: 15, color: Colors.green),
+                                const Icon(
+                                  Icons.reply_rounded,
+                                  size: 15,
+                                  color: Colors.green,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
@@ -1276,7 +1666,10 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                                         _replyToText,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black54,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1296,24 +1689,33 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                             ),
                           ),
                         ),
-                      TextField(
-                        controller: _messageController,
-                        focusNode: _messageFocusNode,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _sendMessage(),
-                        decoration: InputDecoration(
-                          hintText: _editingMessageId != null
-                              ? 'Edit message...'
-                              : 'Write a message...',
-                          filled: true,
-                          fillColor: Colors.grey.withOpacity(0.08),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide.none,
+                      SizedBox(
+                        height: 48,
+                        child: TextField(
+                          controller: _messageController,
+                          focusNode: _messageFocusNode,
+                          scrollController: _composerScrollController,
+                          minLines: 1,
+                          maxLines: null,
+                          keyboardType: TextInputType.multiline,
+                          enableInteractiveSelection: true,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendMessage(),
+                          decoration: InputDecoration(
+                            hintText: _editingMessageId != null
+                                ? 'Edit message...'
+                                : 'Write a message...',
+                            filled: true,
+                            fillColor: Colors.grey.withOpacity(0.08),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         ),
                       ),
                     ],
@@ -1325,18 +1727,25 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                   child: SizedBox(
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: (_sending || !_canSubmit) ? null : _sendMessage,
+                      onPressed: (_sending || !_canSubmit)
+                          ? null
+                          : _sendMessage,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                       child: _sending
                           ? const SizedBox(
                               width: 18,
                               height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
                           : const Icon(Icons.send_rounded, size: 20),
                     ),
@@ -1359,21 +1768,52 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
     final normalizedRole = role.trim().toLowerCase();
     final isTeacher = normalizedRole == 'teacher';
     final fallbackName = isTeacher ? 'Teacher' : 'Student';
-    final finalName = name.trim().isNotEmpty
-        ? name.trim()
-        : (email.trim().toLowerCase() == widget.userEmail.trim().toLowerCase() &&
-                  widget.userName.trim().isNotEmpty
-              ? widget.userName.trim()
-              : fallbackName);
-    final finalEmail = email.trim().isNotEmpty ? email.trim() : 'Email not available';
+
+    String resolveName() {
+      final n = name.trim();
+      final e = email.trim().toLowerCase();
+      final myE = widget.userEmail.trim().toLowerCase();
+      final myN = widget.userName.trim();
+
+      String res = fallbackName;
+
+      if (e.isNotEmpty && _userDirectory.containsKey(e)) {
+        res = _userDirectory[e]!;
+      } else if (n.isNotEmpty && !_isRolePlaceholderName(n)) {
+        res = n;
+      } else if (e.isNotEmpty &&
+          e == myE &&
+          myN.isNotEmpty &&
+          !_isRolePlaceholderName(myN)) {
+        res = myN;
+      } else if (e.isNotEmpty) {
+        res = e;
+      }
+
+      if (normalizedRole == 'teacher') {
+        if (_isRolePlaceholderName(res) || res == e) return 'Teacher';
+        return 'Teacher($res)';
+      }
+      return res;
+    }
+
+    final finalName = resolveName();
+    final finalEmail = email.trim().isNotEmpty
+        ? email.trim()
+        : 'Email not available';
     final initials = _initials(finalName, fallback: isTeacher ? 'T' : 'S');
 
     showDialog<void>(
       context: context,
       builder: (context) {
         return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 32,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: SizedBox(
             width: 280,
             height: 220,
@@ -1417,16 +1857,18 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                                   : Image.network(
                                       avatarUrl,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) => Center(
-                                        child: Text(
-                                          initials,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.green,
-                                            fontSize: 20,
-                                          ),
-                                        ),
-                                      ),
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              Center(
+                                                child: Text(
+                                                  initials,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Colors.green,
+                                                    fontSize: 20,
+                                                  ),
+                                                ),
+                                              ),
                                     ),
                             ),
                           ),
@@ -1466,8 +1908,10 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
   Widget _buildAvatar(String? avatarUrl, String name, String role) {
     final isTeacher = role == 'teacher';
     final initials = _initials(name, fallback: isTeacher ? 'T' : 'S');
-    final bg = isTeacher ? Colors.green.withOpacity(0.12) : Colors.blueAccent.withOpacity(0.12);
-    final fg = isTeacher ? Colors.green : Colors.blueAccent;
+    final bg = isTeacher
+        ? Colors.green[100]
+        : Colors.blue[100];
+    final fg = isTeacher ? Colors.green[800] : Colors.blue[800];
     return CircleAvatar(
       radius: 18,
       backgroundColor: bg,
@@ -1479,7 +1923,11 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
               ? Center(
                   child: Text(
                     initials,
-                    style: TextStyle(fontWeight: FontWeight.bold, color: fg, fontSize: 12),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: fg,
+                      fontSize: 12,
+                    ),
                   ),
                 )
               : Image.network(
@@ -1489,7 +1937,11 @@ class _CourseDiscussionSectionState extends State<CourseDiscussionSection> {
                     return Center(
                       child: Text(
                         initials,
-                        style: TextStyle(fontWeight: FontWeight.bold, color: fg, fontSize: 12),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: fg,
+                          fontSize: 12,
+                        ),
                       ),
                     );
                   },

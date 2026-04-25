@@ -4,15 +4,22 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dart_appwrite/dart_appwrite.dart';
+import 'package:pstublc/config/appwrite_storage.dart';
 
 class ApiService {
   static const String _defaultBaseUrl =
       'http://192.168.0.110/MobileApp/pstublcmobileapp/api';
   static final ValueNotifier<bool> databaseErrorNotifier = ValueNotifier(false);
+  static final ValueNotifier<bool> noInternetNotifier = ValueNotifier(false);
 
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
-  ApiService._internal();
+  late final Account _account;
+
+  ApiService._internal() {
+    _account = Account(appwriteClient);
+  }
 
   Future<String> getBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
@@ -37,15 +44,32 @@ class ApiService {
     Map<String, dynamic> body,
   ) async {
     try {
+      debugPrint('POST JSON: $endpoint - ${jsonEncode(body)}');
       final response = await http.post(
         await _uri(endpoint),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 15));
+      
+      debugPrint('RESPONSE: ${response.statusCode} - ${response.body}');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _trackDatabaseErrorFromResponse(data);
       return data;
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      _setNoInternet(true);
+      return {'success': false, 'message': 'No internet connection'};
+    } on http.ClientException catch (e) {
+      debugPrint('Client error: $e');
+      _setNoInternet(true);
+      return {'success': false, 'message': 'No internet connection'};
     } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('timeout') || msg.contains('connection refused') || msg.contains('network is unreachable')) {
+        _setNoInternet(true);
+        return {'success': false, 'message': 'No internet connection'};
+      }
+      debugPrint('Error in _postJson: $e');
       _setDatabaseError(true);
       return {'success': false, 'message': 'Connection error: $e'};
     }
@@ -56,11 +80,31 @@ class ApiService {
     Map<String, String> body,
   ) async {
     try {
-      final response = await http.post(await _uri(endpoint), body: body);
+      debugPrint('POST FORM: $endpoint');
+      final response = await http.post(
+        await _uri(endpoint), 
+        body: body
+      ).timeout(const Duration(seconds: 15));
+      
+      debugPrint('RESPONSE: ${response.statusCode} - ${response.body}');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _trackDatabaseErrorFromResponse(data);
       return data;
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      _setNoInternet(true);
+      return {'success': false, 'message': 'No internet connection'};
+    } on http.ClientException catch (e) {
+      debugPrint('Client error: $e');
+      _setNoInternet(true);
+      return {'success': false, 'message': 'No internet connection'};
     } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('timeout') || msg.contains('connection refused') || msg.contains('network is unreachable')) {
+        _setNoInternet(true);
+        return {'success': false, 'message': 'No internet connection'};
+      }
+      debugPrint('Error in _postForm: $e');
       _setDatabaseError(true);
       return {'success': false, 'message': 'Connection error: $e'};
     }
@@ -71,14 +115,78 @@ class ApiService {
       'email': email.trim().toLowerCase(),
       'password': password,
     });
+    return data;
+  }
+
+  Future<Map<String, dynamic>> verifyOtp(String email, String otp) async {
+    final data = await _postJson('verify_otp.php', {
+      'email': email.trim().toLowerCase(),
+      'otp': otp,
+    });
     if (data['success'] == true) {
       await _saveUserSession(data, email.trim().toLowerCase());
     }
     return data;
   }
 
-  Future<Map<String, dynamic>> signup(Map<String, dynamic> userData) async {
-    return _postJson('signup.php', userData);
+  Future<Map<String, dynamic>> resendOtp(String email) {
+    return _postJson('resend_otp.php', {
+      'email': email.trim().toLowerCase(),
+    });
+  }
+
+  // Appwrite OTP Methods
+  Future<Map<String, dynamic>> sendAppwriteOtp(String email) async {
+    try {
+      debugPrint('Sending Appwrite OTP to: $email');
+      // Use 'unique' as a placeholder, Appwrite will return the actual User ID (existing or new)
+      final token = await _account.createEmailToken(
+        userId: ID.unique(),
+        email: email.trim().toLowerCase(),
+      ).timeout(const Duration(seconds: 20));
+      
+      final actualUserId = token.userId;
+      debugPrint('Appwrite OTP sent successfully. Actual UserId: $actualUserId');
+      return {'success': true, 'userId': actualUserId};
+    } catch (e) {
+      debugPrint('Appwrite Error (sendOtp): $e');
+      return {'success': false, 'message': 'Failed to send OTP via Appwrite: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> verifyAppwriteOtp(
+    String userId,
+    String secret, {
+    Map<String, dynamic>? userData,
+  }) async {
+    try {
+      debugPrint('Verifying Appwrite OTP for $userId');
+      await _account.createSession(
+        userId: userId, 
+        secret: secret
+      ).timeout(const Duration(seconds: 20));
+      
+      debugPrint('Appwrite verification success.');
+      if (userData != null) {
+        debugPrint('Saving session.');
+        await _saveUserSession(userData, userData['email'] ?? '');
+      }
+      
+      return {'success': true};
+    } catch (e) {
+      debugPrint('Appwrite Error (verifyOtp): $e');
+      return {'success': false, 'message': 'Invalid or expired OTP: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> signup(Map<String, dynamic> data) {
+    return _postJson('signup.php', data);
+  }
+
+  Future<Map<String, dynamic>> validateSignup(Map<String, dynamic> data) {
+    final payload = Map<String, dynamic>.from(data);
+    payload['validate_only'] = true;
+    return _postJson('signup.php', payload);
   }
 
   Future<Map<String, dynamic>> resetPassword(String email, String newPassword) {
@@ -136,11 +244,15 @@ class ApiService {
     required String role,
     required String email,
     required String password,
+    bool verifyOnly = false,
   }) {
-    final endpoint = role == 'student'
-        ? 'delete_student_account.php'
-        : 'delete_teacher_account.php';
-    return _postForm(endpoint, {'email': email, 'password': password});
+    final endpoint =
+        role == 'student' ? 'delete_student_account.php' : 'delete_teacher_account.php';
+    return _postForm(endpoint, {
+      'email': email.trim().toLowerCase(),
+      'password': password,
+      'verify_only': verifyOnly.toString(),
+    });
   }
 
   Future<Map<String, dynamic>> getTeacherCourses(String email) {
@@ -158,6 +270,175 @@ class ApiService {
     return _postJson('get_course_meta_by_scopes.php', {
       'email': email,
       'scopes': scopes,
+    });
+  }
+
+  Future<Map<String, dynamic>> createAssignment({
+    required int courseId,
+    required String teacherEmail,
+    required String title,
+    required String dueDate,
+    required String description,
+    bool isPrivate = true,
+  }) {
+    return _postJson('create_assignment.php', {
+      'course_id': courseId,
+      'teacher_email': teacherEmail,
+      'title': title,
+      'due_date': dueDate,
+      'description': description,
+      'is_private': isPrivate ? 1 : 0,
+    });
+  }
+
+  Future<Map<String, dynamic>> getAssignments(int courseId, {String? studentEmail}) {
+    final body = <String, dynamic>{'course_id': courseId};
+    if (studentEmail != null) body['student_email'] = studentEmail;
+    return _postJson('get_assignments.php', body);
+  }
+
+  Future<Map<String, dynamic>> deleteAssignment({
+    required int id,
+    required int courseId,
+    required String teacherEmail,
+  }) {
+    return _postJson('delete_assignment.php', {
+      'id': id,
+      'course_id': courseId,
+      'teacher_email': teacherEmail,
+    });
+  }
+
+  Future<Map<String, dynamic>> updateAssignment({
+    required int id,
+    required int courseId,
+    required String teacherEmail,
+    String? title,
+    String? dueDate,
+    String? description,
+    bool? isPrivate,
+  }) {
+    final body = <String, dynamic>{
+      'id': id,
+      'course_id': courseId,
+      'teacher_email': teacherEmail,
+    };
+    if (title != null) body['title'] = title;
+    if (dueDate != null) body['due_date'] = dueDate;
+    if (description != null) body['description'] = description;
+    if (isPrivate != null) body['is_private'] = isPrivate ? 1 : 0;
+    return _postJson('update_assignment.php', body);
+  }
+
+  Future<Map<String, dynamic>> toggleAssignmentVisibility({
+    required int id,
+    required int courseId,
+    required String teacherEmail,
+    required bool isPrivate,
+  }) {
+    return _postJson('toggle_assignment_visibility.php', {
+      'id': id,
+      'course_id': courseId,
+      'teacher_email': teacherEmail,
+      'is_private': isPrivate ? 1 : 0,
+    });
+  }
+
+  Future<Map<String, dynamic>> getAssignmentCommentMessages({
+    required int assignmentId,
+    required int courseId,
+    required String email,
+    required String role,
+  }) {
+    return _postJson('get_assignment_comment_messages.php', {
+      'assignment_id': assignmentId,
+      'course_id': courseId,
+      'email': email.trim().toLowerCase(),
+      'role': role.trim().toLowerCase(),
+    });
+  }
+
+  Future<Map<String, dynamic>> sendAssignmentCommentMessage({
+    required int assignmentId,
+    required int courseId,
+    required String email,
+    required String role,
+    required String senderName,
+    required String message,
+    String targetAudience = 'everyone',
+    String? targetStudentEmail,
+  }) {
+    final body = <String, dynamic>{
+      'assignment_id': assignmentId,
+      'course_id': courseId,
+      'email': email.trim().toLowerCase(),
+      'role': role.trim().toLowerCase(),
+      'sender_name': senderName,
+      'message': message,
+      'target_audience': targetAudience,
+    };
+    if (targetStudentEmail != null && targetStudentEmail.trim().isNotEmpty) {
+      body['target_student_email'] = targetStudentEmail.trim().toLowerCase();
+    }
+    return _postJson('send_assignment_comment_message.php', body);
+  }
+
+  Future<Map<String, dynamic>> deleteAssignmentCommentMessages({
+    required List<int> messageIds,
+    required String email,
+    required String role,
+  }) {
+    return _postJson('delete_assignment_comment_messages.php', {
+      'message_ids': messageIds,
+      'email': email.trim().toLowerCase(),
+      'role': role.trim().toLowerCase(),
+    });
+  }
+
+  Future<Map<String, dynamic>> submitAssignment({
+    required int assignmentId,
+    required String studentEmail,
+    required List<String> fileIds,
+    required List<String> fileNames,
+  }) {
+    return _postJson('submit_assignment.php', {
+      'assignment_id': assignmentId,
+      'student_email': studentEmail,
+      'file_ids': fileIds,
+      'file_names': fileNames,
+    });
+  }
+
+  Future<Map<String, dynamic>> getAssignmentSubmissions({
+    required int assignmentId,
+    String? studentEmail,
+  }) {
+    final body = <String, dynamic>{'assignment_id': assignmentId};
+    if (studentEmail != null) body['student_email'] = studentEmail;
+    return _postJson('get_assignment_submissions.php', body);
+  }
+
+  Future<Map<String, dynamic>> deleteSubmissionFile({
+    required int assignmentId,
+    required String studentEmail,
+    required String fileId,
+  }) {
+    return _postJson('delete_submission_file.php', {
+      'assignment_id': assignmentId,
+      'student_email': studentEmail,
+      'file_id': fileId,
+    });
+  }
+
+  Future<Map<String, dynamic>> updateSubmissionStatus({
+    required int assignmentId,
+    required String studentEmail,
+    required bool isTurnedIn,
+  }) {
+    return _postJson('update_submission_status.php', {
+      'assignment_id': assignmentId,
+      'student_email': studentEmail,
+      'is_turned_in': isTurnedIn ? 1 : 0,
     });
   }
 
@@ -258,6 +539,12 @@ class ApiService {
 
   Future<Map<String, dynamic>> getCourseAttendanceOverview(int courseId) {
     return _postJson('get_course_attendance_overview.php', {
+      'course_id': courseId,
+    });
+  }
+
+  Future<Map<String, dynamic>> getCourseAssignmentOverview(int courseId) {
+    return _postJson('get_course_assignment_overview.php', {
       'course_id': courseId,
     });
   }
@@ -368,6 +655,18 @@ class ApiService {
     return _postJson('get_enrolled_students.php', {'course_id': courseId});
   }
 
+  Future<Map<String, dynamic>> getCourseRecipients({
+    required int courseId,
+    required String email,
+    required String role,
+  }) {
+    return _postJson('get_course_recipients.php', {
+      'course_id': courseId,
+      'email': email.trim().toLowerCase(),
+      'role': role.trim().toLowerCase(),
+    });
+  }
+
   Future<Map<String, dynamic>> getBatchStudents(int courseId) {
     return _postJson('get_batch_students.php', {'course_id': courseId});
   }
@@ -394,6 +693,8 @@ class ApiService {
     required String role,
     required String senderName,
     required String message,
+    String targetAudience = 'everyone',
+    String? targetStudentEmail,
     int? replyToMessageId,
     String? replyToSenderName,
     String? replyToMessage,
@@ -404,7 +705,11 @@ class ApiService {
       'role': role.trim().toLowerCase(),
       'sender_name': senderName,
       'message': message,
+      'target_audience': targetAudience,
     };
+    if (targetStudentEmail != null && targetStudentEmail.trim().isNotEmpty) {
+      body['target_student_email'] = targetStudentEmail.trim().toLowerCase();
+    }
     if (replyToMessageId != null && replyToMessageId > 0) {
       body['reply_to_message_id'] = replyToMessageId;
       body['reply_to_sender_name'] = (replyToSenderName ?? '').trim();
@@ -665,18 +970,26 @@ class ApiService {
     String loginEmail,
   ) async {
     final role = (data['role'] ?? 'teacher').toString();
-    final email = (data['email'] ?? loginEmail).toString();
+    final email = (data['email'] ?? loginEmail).toString().trim().toLowerCase();
     final name = (data['name'] ?? '').toString();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', true);
     await prefs.setString('userRole', role);
     await prefs.setString('userName', name);
-    await prefs.setString('userEmail', email);
-    if (data['faculty'] != null) {
-      await prefs.setString('facultyCode', data['faculty']['code'] ?? '');
-      await prefs.setString('facultyName', data['faculty']['name'] ?? '');
+    await prefs.setString('userEmail', email.isNotEmpty ? email : loginEmail.trim().toLowerCase());
+
+    // Handle both flat (student login) and nested (legacy) faculty format
+    if (data['faculty_code'] != null) {
+      await prefs.setString('facultyCode', data['faculty_code'].toString());
+      await prefs.setString('facultyName', (data['faculty_name'] ?? '').toString());
+    } else if (data['faculty'] != null && data['faculty'] is Map) {
+      final faculty = data['faculty'] as Map;
+      await prefs.setString('facultyCode', (faculty['code'] ?? '').toString());
+      await prefs.setString('facultyName', (faculty['name'] ?? '').toString());
     }
+
+    debugPrint('Session saved: role=$role, email=$email, name=$name');
   }
 
   Future<Map<String, String?>> getSession() async {
@@ -759,8 +1072,16 @@ class ApiService {
   }
 
   void _setDatabaseError(bool value) {
+    if (noInternetNotifier.value) noInternetNotifier.value = false;
     if (databaseErrorNotifier.value != value) {
       databaseErrorNotifier.value = value;
+    }
+  }
+
+  void _setNoInternet(bool value) {
+    if (databaseErrorNotifier.value) databaseErrorNotifier.value = false;
+    if (noInternetNotifier.value != value) {
+      noInternetNotifier.value = value;
     }
   }
 
@@ -772,6 +1093,8 @@ class ApiService {
   }
 
   void _trackDatabaseErrorFromResponse(Map<String, dynamic> data) {
+    // Clear any network errors when we get a valid response
+    if (noInternetNotifier.value) noInternetNotifier.value = false;
     if (data['success'] == true) {
       _setDatabaseError(false);
       return;

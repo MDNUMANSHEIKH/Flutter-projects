@@ -20,6 +20,25 @@ if ($conn->connect_error) {
     exit();
 }
 
+
+function ensureDiscussionTargetColumns(mysqli $conn): bool {
+    $targetAudienceCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'target_audience'");
+    if ($targetAudienceCheck && $targetAudienceCheck->num_rows === 0) {
+        if (!$conn->query("ALTER TABLE course_discussion_messages ADD COLUMN target_audience VARCHAR(20) NOT NULL DEFAULT 'everyone' AFTER sender_role")) {
+            return false;
+        }
+    }
+
+    $targetStudentEmailCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'target_student_email'");
+    if ($targetStudentEmailCheck && $targetStudentEmailCheck->num_rows === 0) {
+        if (!$conn->query("ALTER TABLE course_discussion_messages ADD COLUMN target_student_email VARCHAR(100) NULL AFTER target_audience")) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function ensureDiscussionReplyColumns(mysqli $conn): bool {
     $replyIdCheck = $conn->query("SHOW COLUMNS FROM course_discussion_messages LIKE 'reply_to_message_id'");
     if ($replyIdCheck && $replyIdCheck->num_rows === 0) {
@@ -84,6 +103,8 @@ $message = trim((string)($data['message'] ?? ''));
 $replyToMessageId = (int)($data['reply_to_message_id'] ?? 0);
 $replyToSenderName = trim((string)($data['reply_to_sender_name'] ?? ''));
 $replyToMessage = trim((string)($data['reply_to_message'] ?? ''));
+$targetAudience = trim(strtolower((string)($data['target_audience'] ?? 'everyone')));
+$targetStudentEmail = trim(strtolower((string)($data['target_student_email'] ?? '')));
 
 if ($courseId <= 0) {
     http_response_code(400);
@@ -112,6 +133,26 @@ if ($replyToMessageId <= 0) {
 if (!ensureDiscussionReplyColumns($conn)) {
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Failed to prepare discussion table for replies']);
+    exit();
+}
+
+if (!ensureDiscussionTargetColumns($conn)) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Failed to prepare discussion table for recipients']);
+    exit();
+}
+
+if ($role !== 'teacher') {
+    $targetAudience = 'everyone';
+    $targetStudentEmail = '';
+} elseif ($targetAudience !== 'student') {
+    $targetAudience = 'everyone';
+    $targetStudentEmail = '';
+}
+
+if ($role === 'teacher' && $targetAudience === 'student' && $targetStudentEmail === '') {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Target student is required']);
     exit();
 }
 
@@ -172,14 +213,14 @@ $senderLabel = buildDiscussionSenderLabel($role, $senderName, $email);
 $notifTitle = 'New message in ' . $courseLabel . ' from ' . $senderLabel;
 $notifMessage = $message;
 
-$stmt = $conn->prepare('INSERT INTO course_discussion_messages (course_id, sender_email, sender_name, sender_role, message, reply_to_message_id, reply_to_sender_name, reply_to_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+$stmt = $conn->prepare('INSERT INTO course_discussion_messages (course_id, sender_email, sender_name, sender_role, target_audience, target_student_email, message, reply_to_message_id, reply_to_sender_name, reply_to_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 if (!$stmt) {
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Prepare failed: ' . $conn->error]);
     exit();
 }
 
-$stmt->bind_param('issssisss', $courseId, $email, $senderName, $role, $message, $replyToMessageId, $replyToSenderName, $replyToMessage, $createdAt);
+$stmt->bind_param('issssssisss', $courseId, $email, $senderName, $role, $targetAudience, $targetStudentEmail, $message, $replyToMessageId, $replyToSenderName, $replyToMessage, $createdAt);
 
 if ($stmt->execute()) {
     $dedupeStmt = $conn->prepare("DELETE FROM notifications WHERE course_id = ? AND type = 'discussion'");
@@ -189,22 +230,31 @@ if ($stmt->execute()) {
         $dedupeStmt->close();
     }
 
-    $notifySql = "INSERT INTO notifications (student_email, course_id, title, message, type)
-                  SELECT e.student_email, ?, ?, ?, 'discussion'
-                  FROM enrollments e
-                  WHERE e.course_id = ? AND e.is_blocked = 0";
-    $notifyParams = [$courseId, $notifTitle, $notifMessage, $courseId];
-    $notifyTypes = 'issi';
-    if ($role === 'student') {
-        $notifySql .= ' AND LOWER(e.student_email) <> ?';
-        $notifyParams[] = $email;
-        $notifyTypes .= 's';
-    }
-    $notifyStmt = $conn->prepare($notifySql);
-    if ($notifyStmt) {
-        $notifyStmt->bind_param($notifyTypes, ...$notifyParams);
-        $notifyStmt->execute();
-        $notifyStmt->close();
+    if ($targetAudience === 'student' && $targetStudentEmail !== '') {
+        $notifyStmt = $conn->prepare("INSERT INTO notifications (student_email, course_id, title, message, type) VALUES (?, ?, ?, ?, 'discussion')");
+        if ($notifyStmt) {
+            $notifyStmt->bind_param('siss', $targetStudentEmail, $courseId, $notifTitle, $notifMessage);
+            $notifyStmt->execute();
+            $notifyStmt->close();
+        }
+    } else {
+        $notifySql = "INSERT INTO notifications (student_email, course_id, title, message, type)
+                      SELECT e.student_email, ?, ?, ?, 'discussion'
+                      FROM enrollments e
+                      WHERE e.course_id = ? AND e.is_blocked = 0";
+        $notifyParams = [$courseId, $notifTitle, $notifMessage, $courseId];
+        $notifyTypes = 'issi';
+        if ($role === 'student') {
+            $notifySql .= ' AND LOWER(e.student_email) <> ?';
+            $notifyParams[] = $email;
+            $notifyTypes .= 's';
+        }
+        $notifyStmt = $conn->prepare($notifySql);
+        if ($notifyStmt) {
+            $notifyStmt->bind_param($notifyTypes, ...$notifyParams);
+            $notifyStmt->execute();
+            $notifyStmt->close();
+        }
     }
 
     echo json_encode([

@@ -23,8 +23,14 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkSession() async {
+    // Brief delay to show the splash screen logo
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+
     final loggedIn = await _apiService.isLoggedIn();
-    if (!loggedIn || !mounted) {
+    if (!mounted) return;
+
+    if (!loggedIn) {
       setState(() => _checkingSession = false);
       return;
     }
