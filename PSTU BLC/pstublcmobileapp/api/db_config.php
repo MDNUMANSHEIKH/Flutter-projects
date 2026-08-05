@@ -5,6 +5,7 @@ define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_NAME', 'pstublcmobileapp');
 
+date_default_timezone_set('Asia/Dhaka');
 
 define('ENCRYPTION_KEY', 'pstu_blc_secret_key_12345');
 

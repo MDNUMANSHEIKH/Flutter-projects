@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pstublc/config/appwrite_storage.dart';
@@ -2727,6 +2728,9 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
         deviceNow.add(const Duration(hours: 1)),
       );
     }
+    bool isDynamicQr = true;
+    double qrInterval = 3.0;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -2745,64 +2749,111 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
 
           return AlertDialog(
             title: Text(isEdit ? 'Edit Attendance' : 'Get Attendance'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 10),
-                ListTile(
-                  title: const Text('Date'),
-                  subtitle: Text(displayDate),
-                  trailing: const Icon(Icons.calendar_today),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      // Use deviceNow so the green highlight moves at YOUR midnight
-                      initialDate: selectedDate ?? deviceNow,
-                      firstDate: isEdit
-                          ? deviceNow.subtract(const Duration(days: 30))
-                          : deviceNow,
-                      lastDate: deviceNow.add(const Duration(days: 365)),
-                    );
-                    if (picked != null) {
-                      setDialogState(() => selectedDate = picked);
-                    }
-                  },
-                ),
-                ListTile(
-                  title: const Text('Start Time'),
-                  subtitle: Text(formatTime(selectedStartTime)),
-                  trailing: const Icon(Icons.access_time),
-                  onTap: () async {
-                    final picked = await showTimePicker(
-                      context: context,
-                      initialTime:
-                          selectedStartTime ??
-                          TimeOfDay.fromDateTime(deviceNow),
-                    );
-                    if (picked != null) {
-                      setDialogState(() => selectedStartTime = picked);
-                    }
-                  },
-                ),
-                ListTile(
-                  title: const Text('End Time'),
-                  subtitle: Text(formatTime(selectedEndTime)),
-                  trailing: const Icon(Icons.access_time_filled),
-                  onTap: () async {
-                    final picked = await showTimePicker(
-                      context: context,
-                      initialTime:
-                          selectedEndTime ??
-                          TimeOfDay.fromDateTime(
-                            deviceNow.add(const Duration(hours: 1)),
-                          ),
-                    );
-                    if (picked != null) {
-                      setDialogState(() => selectedEndTime = picked);
-                    }
-                  },
-                ),
-              ],
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 10),
+                  ListTile(
+                    title: const Text('Date'),
+                    subtitle: Text(displayDate),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        // Use deviceNow so the green highlight moves at YOUR midnight
+                        initialDate: selectedDate ?? deviceNow,
+                        firstDate: isEdit
+                            ? deviceNow.subtract(const Duration(days: 30))
+                            : deviceNow,
+                        lastDate: deviceNow.add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
+                  ),
+                  ListTile(
+                    title: const Text('Start Time'),
+                    subtitle: Text(formatTime(selectedStartTime)),
+                    trailing: const Icon(Icons.access_time),
+                    onTap: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime:
+                            selectedStartTime ??
+                            TimeOfDay.fromDateTime(deviceNow),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedStartTime = picked);
+                      }
+                    },
+                  ),
+                  ListTile(
+                    title: const Text('End Time'),
+                    subtitle: Text(formatTime(selectedEndTime)),
+                    trailing: const Icon(Icons.access_time_filled),
+                    onTap: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime:
+                            selectedEndTime ??
+                            TimeOfDay.fromDateTime(
+                              deviceNow.add(const Duration(hours: 1)),
+                            ),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedEndTime = picked);
+                      }
+                    },
+                  ),
+                  if (!isEdit) ...[
+                    const Divider(),
+                    SwitchListTile(
+                      title: const Text('Dynamic QR'),
+                      value: isDynamicQr,
+                      onChanged: (val) {
+                        setDialogState(() => isDynamicQr = val);
+                      },
+                    ),
+                    if (isDynamicQr)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Interval',
+                                  style: TextStyle(fontSize: 13),
+                                ),
+                                Text(
+                                  '${qrInterval.round()} sec',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.teal,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Slider(
+                              value: qrInterval,
+                              min: 1.0,
+                              max: 20.0,
+                              divisions: 19,
+                              label: '${qrInterval.round()} sec',
+                              onChanged: (val) {
+                                setDialogState(() => qrInterval = val);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -2864,6 +2915,8 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
         teacherEmail: widget.teacherEmail,
         sessionDate: startStr,
         sessionEnd: endStr,
+        isDynamicQr: isDynamicQr,
+        qrInterval: qrInterval.round(),
       );
     }
     _showMsg(
@@ -2878,6 +2931,14 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
   }
 
   Future<void> _showGetAttendanceDialog() => _showAttendanceDialog();
+
+  void _showDynamicQrDialog(Map<String, dynamic> session) {
+    showDialog(
+      context: context,
+      useRootNavigator: true,
+      builder: (context) => DynamicQrDialog(session: session),
+    );
+  }
 
   Future<void> _showStudentAttendanceOverview() async {
     setState(() {
@@ -3184,7 +3245,7 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
-                                childAspectRatio: 0.8,
+                                childAspectRatio: 0.64,
                                 crossAxisSpacing: 10,
                                 mainAxisSpacing: 10,
                               ),
@@ -3332,19 +3393,61 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                                                 ],
                                               ),
                                             ),
-                                            PopupMenuButton(
-                                              icon: const Icon(
-                                                Icons.more_vert,
-                                                size: 20,
-                                              ),
-                                              onSelected: (val) async {
-                                                if (val == 'public') {
-                                                  _publishSession(s);
-                                                } else if (val == 'private') {
-                                                  _privateSession(s);
-                                                } else if (val == 'stop') {
-                                                  _stopAttendanceSession(s);
-                                                } else if (val == 'edit') {
+                                            if ((s['is_dynamic_qr'] == 1 ||
+                                                     s['is_dynamic_qr'] ==
+                                                         '1' ||
+                                                     s['is_dynamic_qr'] ==
+                                                         true) ||
+                                                 (s['qr_code_hex'] != null &&
+                                                     s['qr_code_hex']
+                                                         .toString()
+                                                         .isNotEmpty))
+                                               IconButton(
+                                                 icon: const Icon(
+                                                   Icons.qr_code_2,
+                                                   size: 20,
+                                                 ),
+                                                 padding: EdgeInsets.zero,
+                                                 constraints:
+                                                     const BoxConstraints(),
+                                                 tooltip: 'Show Dynamic QR',
+                                                 onPressed: () =>
+                                                     _showDynamicQrDialog(s),
+                                               ),
+                                              Container(
+                                                 margin: const EdgeInsets.only(left: 2, right: 0),
+                                                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                 decoration: BoxDecoration(
+                                                   color: Colors.teal.withOpacity(0.12),
+                                                   border: Border.all(color: Colors.teal.shade300, width: 1),
+                                                   borderRadius: BorderRadius.circular(5),
+                                                 ),
+                                                 child: Text(
+                                                   '#${s['id']}',
+                                                   style: TextStyle(
+                                                     fontSize: 11,
+                                                     fontWeight: FontWeight.bold,
+                                                     color: Colors.teal.shade900,
+                                                   ),
+                                                 ),
+                                               ),
+                                              PopupMenuButton(
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(),
+                                               icon: const Icon(
+                                                 Icons.more_vert,
+                                                 size: 20,
+                                               ),
+                                               onSelected: (val) async {
+                                                 if (val == 'public') {
+                                                   _publishSession(s);
+                                                 } else if (val == 'private') {
+                                                   _privateSession(s);
+                                                 } else if (val == 'stop') {
+                                                   _stopAttendanceSession(s);
+                                                 } else if (val == 'qr') {
+                                                   _showDynamicQrDialog(s);
+                                                 } else if (val == 'edit') {
                                                   _showAttendanceDialog(
                                                     session: s,
                                                   );
@@ -3407,87 +3510,117 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
                                                   }
                                                 }
                                               },
-                                              itemBuilder: (context) => [
-                                                if ((!isStarted &&
-                                                        !_showAttendanceHistory) ||
-                                                    isPrivate)
+                                              itemBuilder: (context) {
+                                                final isDynamicQr = s['is_dynamic_qr'];
+                                                final isDynamicQrSession =
+                                                    isDynamicQr == null ||
+                                                        isDynamicQr == 1 ||
+                                                        isDynamicQr == '1' ||
+                                                        isDynamicQr == true ||
+                                                        (s['qr_code_hex'] !=
+                                                                null &&
+                                                            s['qr_code_hex']
+                                                                .toString()
+                                                                .isNotEmpty);
+                                                return [
+                                                  if ((!isStarted &&
+                                                          !_showAttendanceHistory) ||
+                                                      isPrivate)
+                                                    const PopupMenuItem(
+                                                      value: 'public',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.public,
+                                                            size: 18,
+                                                            color: Colors.green,
+                                                          ),
+                                                          SizedBox(width: 8),
+                                                          Text('Public'),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  if (isStarted &&
+                                                      !_showAttendanceHistory &&
+                                                      !isPrivate)
+                                                    const PopupMenuItem(
+                                                      value: 'private',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.lock_outline,
+                                                            size: 18,
+                                                            color: Colors.red,
+                                                          ),
+                                                          SizedBox(width: 8),
+                                                          Text('Private'),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  if (isStarted &&
+                                                      !_showAttendanceHistory)
+                                                    const PopupMenuItem(
+                                                      value: 'stop',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons
+                                                                .stop_circle_outlined,
+                                                            size: 18,
+                                                            color: Colors.red,
+                                                          ),
+                                                          SizedBox(width: 8),
+                                                          Text(
+                                                            'Stop Attendance',
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  if (isDynamicQrSession)
+                                                    const PopupMenuItem(
+                                                      value: 'qr',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.qr_code_2,
+                                                            size: 18,
+                                                            color: Colors.teal,
+                                                          ),
+                                                          SizedBox(width: 8),
+                                                          Text('QR'),
+                                                        ],
+                                                      ),
+                                                    ),
                                                   const PopupMenuItem(
-                                                    value: 'public',
+                                                    value: 'edit',
                                                     child: Row(
                                                       children: [
                                                         Icon(
-                                                          Icons.public,
+                                                          Icons.edit,
                                                           size: 18,
-                                                          color: Colors.green,
+                                                          color: Colors.orange,
                                                         ),
                                                         SizedBox(width: 8),
-                                                        Text('Public'),
+                                                        Text('Edit'),
                                                       ],
                                                     ),
                                                   ),
-                                                if (isStarted &&
-                                                    !_showAttendanceHistory &&
-                                                    !isPrivate)
                                                   const PopupMenuItem(
-                                                    value: 'private',
+                                                    value: 'delete',
                                                     child: Row(
                                                       children: [
                                                         Icon(
-                                                          Icons.lock_outline,
+                                                          Icons.delete,
                                                           size: 18,
                                                           color: Colors.red,
                                                         ),
                                                         SizedBox(width: 8),
-                                                        Text('Private'),
+                                                        Text('Delete'),
                                                       ],
                                                     ),
                                                   ),
-                                                if (isStarted &&
-                                                    !_showAttendanceHistory)
-                                                  const PopupMenuItem(
-                                                    value: 'stop',
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(
-                                                          Icons
-                                                              .stop_circle_outlined,
-                                                          size: 18,
-                                                          color: Colors.red,
-                                                        ),
-                                                        SizedBox(width: 8),
-                                                        Text('Stop Attendance'),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                const PopupMenuItem(
-                                                  value: 'edit',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.edit,
-                                                        size: 18,
-                                                        color: Colors.orange,
-                                                      ),
-                                                      SizedBox(width: 8),
-                                                      Text('Edit'),
-                                                    ],
-                                                  ),
-                                                ),
-                                                const PopupMenuItem(
-                                                  value: 'delete',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.delete,
-                                                        size: 18,
-                                                        color: Colors.red,
-                                                      ),
-                                                      SizedBox(width: 8),
-                                                      Text('Delete'),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
+                                                ];
+                                              },
                                             ),
                                           ],
                                         ),
@@ -4225,8 +4358,8 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
         } catch (ioErr) {
           // Fallback to Folder Picker
           _showMsg('Please select a folder to save the report');
-          String? selectedDirectory =
-              await FilePicker.platform.getDirectoryPath();
+          String? selectedDirectory = await FilePicker.platform
+              .getDirectoryPath();
 
           if (selectedDirectory != null) {
             final targetFile = File('$selectedDirectory/$safeFileName');
@@ -4305,6 +4438,151 @@ class _TeacherCourseDetailPageState extends State<TeacherCourseDetailPage> {
               apiService: widget.apiService,
               courseId: _courseId,
               courseScope: _courseScope,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class DynamicQrDialog extends StatefulWidget {
+  final Map<String, dynamic> session;
+  const DynamicQrDialog({super.key, required this.session});
+
+  @override
+  State<DynamicQrDialog> createState() => _DynamicQrDialogState();
+}
+
+class _DynamicQrDialogState extends State<DynamicQrDialog> {
+  Timer? _timer;
+  int _counter = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final intervalRaw = widget.session['qr_interval'];
+    final interval = int.tryParse(intervalRaw?.toString() ?? '3') ?? 3;
+    final safeInterval = interval < 1 ? 1 : (interval > 20 ? 20 : interval);
+
+    _timer = Timer.periodic(Duration(seconds: safeInterval), (t) {
+      if (mounted) {
+        setState(() {
+          _counter++;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final code = widget.session['course_code']?.toString() ?? '';
+    final name = widget.session['course_name']?.toString() ?? '';
+    String courseTitle = 'Attendance QR';
+    if (code.isNotEmpty && name.isNotEmpty) {
+      courseTitle = "$code - $name";
+    } else if (name.isNotEmpty) {
+      courseTitle = name;
+    } else if (code.isNotEmpty) {
+      courseTitle = code;
+    }
+
+    String hexCode = widget.session['qr_code_hex']?.toString() ?? '';
+    if (hexCode.isEmpty) {
+      final sId = widget.session['id']?.toString() ?? '1';
+      hexCode = 'a1b2c3d4e5f678901234567890abcdef1234567890${sId.padLeft(8, '0')}';
+    }
+    final intervalRaw = widget.session['qr_interval'];
+    final interval = int.tryParse(intervalRaw?.toString() ?? '3') ?? 3;
+    final safeInterval = interval < 1 ? 1 : (interval > 20 ? 20 : interval);
+
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final timeSlot = nowSeconds ~/ safeInterval;
+    final qrData = "$hexCode:$timeSlot:$_counter";
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 320,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              courseTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Dynamic Attendance QR Code',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                width: 200,
+                height: 200,
+                child: QrImageView(
+                  data: qrData.isNotEmpty ? qrData : 'INVALID_SESSION_DATA',
+                  version: QrVersions.auto,
+                  size: 200.0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.teal),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Auto-refreshes every $safeInterval sec',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+              child: const Text(
+                'Close',
+                style: TextStyle(fontSize: 16, color: Colors.teal),
+              ),
             ),
           ],
         ),

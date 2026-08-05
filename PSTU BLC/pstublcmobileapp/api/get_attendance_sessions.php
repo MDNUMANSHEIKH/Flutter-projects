@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once 'db_config.php';
+require_once 'attendance_notify_helper.php';
 
 $course_id = $_GET['course_id'] ?? null;
 if (!$course_id) {
@@ -23,8 +24,10 @@ if (!$course_id) {
     exit();
 }
 
+checkAndNotifyActiveSessions($conn);
+
 $sql = "SELECT 
-    A.id, A.course_id, A.session_date, A.session_end, A.created_at, A.is_private,
+    A.id, A.course_id, A.session_date, A.session_end, A.created_at, A.is_private, A.is_dynamic_qr, A.qr_interval, A.qr_code_hex,
     T.name AS teacher_name, 
     F.faculty_name, 
     C.course_code, C.course_name, C.session

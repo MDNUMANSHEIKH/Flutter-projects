@@ -25,7 +25,8 @@ if (!$id || !$session_date || !$session_end) {
 }
 
 if ($is_private !== null) {
-    $sql = "UPDATE attendance_sessions SET session_date = ?, session_end = ?, is_private = ? WHERE id = ?";
+    // Reset notified = 0 when toggled so active transition can notify un-marked students
+    $sql = "UPDATE attendance_sessions SET session_date = ?, session_end = ?, is_private = ?, notified = 0 WHERE id = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ssii", $session_date, $session_end, $is_private, $id);
 } else {
@@ -36,6 +37,10 @@ if ($is_private !== null) {
 
 if ($stmt->execute()) {
     logActivity($conn, null, 'teacher', 'attendance_session_update', "Session ID: $id");
+
+    require_once 'attendance_notify_helper.php';
+    checkAndNotifyActiveSessions($conn);
+
     echo json_encode(['success' => true, 'message' => 'Attendance session updated successfully']);
 } else {
     logActivity($conn, null, 'teacher', 'attendance_session_update_failed', 'Failed for session ID: ' . $id);

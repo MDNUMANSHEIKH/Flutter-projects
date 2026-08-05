@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:pstublc/config/appwrite_storage.dart';
 import 'package:pstublc/login_page.dart';
 import 'package:pstublc/services/api_service.dart';
@@ -73,7 +75,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   Future<void> _init() async {
     final session = await _apiService.getSession();
     _email = session['email'] ?? '';
-    
+
     if (_email.isEmpty) {
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -160,7 +162,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
 
   List<String> _studentCourseFilterKeys() {
     final keys = _courses.map(_studentCourseKey).toSet().toList()
-      ..sort((a, b) => _studentCourseLabel(a).compareTo(_studentCourseLabel(b)));
+      ..sort(
+        (a, b) => _studentCourseLabel(a).compareTo(_studentCourseLabel(b)),
+      );
     return ['all', ...keys];
   }
 
@@ -222,10 +226,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         bucketId: materialsBucketId,
         queries: [Query.limit(500)],
       );
-      final candidates = files.files
-          .where((f) => f.name.startsWith(prefix))
-          .toList()
-        ..sort((a, b) => b.$createdAt.compareTo(a.$createdAt));
+      final candidates =
+          files.files.where((f) => f.name.startsWith(prefix)).toList()
+            ..sort((a, b) => b.$createdAt.compareTo(a.$createdAt));
       if (!mounted) return;
       if (candidates.isEmpty) {
         setState(() {
@@ -257,7 +260,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         return AlertDialog(
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [_buildProfilePhotoPreview(size: 92), const SizedBox(height: 12)],
+            children: [
+              _buildProfilePhotoPreview(size: 92),
+              const SizedBox(height: 12),
+            ],
           ),
           actions: [
             TextButton(
@@ -531,7 +537,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   String _profileInitials() {
     final name = (_profile['name'] ?? '').toString().trim();
     if (name.isEmpty) return '';
-    final parts = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '';
     if (parts.length == 1) {
       final one = parts.first;
@@ -553,18 +562,18 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       if (!mounted) return;
 
       final email = _email.toLowerCase().trim();
-        final rows = result.files
-          .where((f) => f.name.startsWith('result_'))
-          .map((f) => _mapResultFile(f))
-          .where((r) => (r['student_email'] ?? '') == email)
-          .where((r) => (r['result_is_private'] ?? false) != true)
-          .toList()
-        ..sort(
-          (a, b) =>
-              (b['uploaded_at_raw'] ?? '').toString().compareTo(
+      final rows =
+          result.files
+              .where((f) => f.name.startsWith('result_'))
+              .map((f) => _mapResultFile(f))
+              .where((r) => (r['student_email'] ?? '') == email)
+              .where((r) => (r['result_is_private'] ?? false) != true)
+              .toList()
+            ..sort(
+              (a, b) => (b['uploaded_at_raw'] ?? '').toString().compareTo(
                 (a['uploaded_at_raw'] ?? '').toString(),
               ),
-        );
+            );
 
       final scopes = rows
           .map((row) => (row['course_scope'] ?? '').toString())
@@ -582,8 +591,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   .map((item) => Map<String, dynamic>.from(item as Map))
                   .toList();
           final Map<String, Map<String, dynamic>> byScope = {
-            for (final row in metaRows)
-              (row['scope'] ?? '').toString(): row,
+            for (final row in metaRows) (row['scope'] ?? '').toString(): row,
           };
 
           for (var i = 0; i < rows.length; i++) {
@@ -691,7 +699,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
       scope = parts.first.replaceFirst('result_', '');
       studentEmail = parts[1].toLowerCase();
       final hasVisibilityToken =
-          parts.length >= 5 && (parts[2] == 'v_public' || parts[2] == 'v_private');
+          parts.length >= 5 &&
+          (parts[2] == 'v_public' || parts[2] == 'v_private');
       resultIsPrivate = hasVisibilityToken && parts[2] == 'v_private';
       originalName = hasVisibilityToken
           ? parts.sublist(4).join('__')
@@ -763,10 +772,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   }
 
   List<String> _resultCourseFilterKeys() {
-    final keys = _results
-        .map((row) => _resultCourseKey(row))
-        .toSet()
-        .toList()
+    final keys = _results.map((row) => _resultCourseKey(row)).toSet().toList()
       ..sort((a, b) => _resultCourseLabel(a).compareTo(_resultCourseLabel(b)));
     return ['all', ...keys];
   }
@@ -774,9 +780,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
   List<Map<String, dynamic>> _filteredResults() {
     if (_selectedResultCourseFilter == 'all') return _results;
     return _results
-        .where(
-          (row) => _resultCourseKey(row) == _selectedResultCourseFilter,
-        )
+        .where((row) => _resultCourseKey(row) == _selectedResultCourseFilter)
         .toList();
   }
 
@@ -988,9 +992,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           mimeType: MimeType.other,
         );
       } else {
-        final downloadsPath = await ExternalPath.getExternalStoragePublicDirectory(
-          ExternalPath.DIRECTORY_DOWNLOAD,
-        );
+        final downloadsPath =
+            await ExternalPath.getExternalStoragePublicDirectory(
+              ExternalPath.DIRECTORY_DOWNLOAD,
+            );
         final targetDir = Directory('$downloadsPath/PSTU_BLC_Results');
         if (!await targetDir.exists()) {
           await targetDir.create(recursive: true);
@@ -1068,7 +1073,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     for (final teacher in teachers) {
       final email = (teacher['email'] ?? '').toString().trim().toLowerCase();
       if (email.isEmpty) continue;
-      emailToPrefix[email] = 'teacher_profile__${_sanitizeTeacherEmail(email)}__';
+      emailToPrefix[email] =
+          'teacher_profile__${_sanitizeTeacherEmail(email)}__';
     }
     if (emailToPrefix.isEmpty) return <String, String>{};
 
@@ -1085,7 +1091,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           final prefix = entry.value;
           if (!file.name.startsWith(prefix)) continue;
           final existing = latestFileByEmail[email];
-          if (existing == null || file.$createdAt.compareTo(existing.$createdAt) > 0) {
+          if (existing == null ||
+              file.$createdAt.compareTo(existing.$createdAt) > 0) {
             latestFileByEmail[email] = file;
           }
           break;
@@ -1259,7 +1266,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         ],
       ),
     );
-    if (updated == null || updated.isEmpty || updated == profileCurrent || updated == current) {
+    if (updated == null ||
+        updated.isEmpty ||
+        updated == profileCurrent ||
+        updated == current) {
       return;
     }
     final result = await _apiService.updateProfileField(
@@ -1406,7 +1416,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
     final selectedCount = _selectedResultFileIds.length;
     final visibleIds = _visibleResultFileIds();
     final allVisibleSelected =
-        visibleIds.isNotEmpty && visibleIds.every(_selectedResultFileIds.contains);
+        visibleIds.isNotEmpty &&
+        visibleIds.every(_selectedResultFileIds.contains);
 
     return Scaffold(
       appBar: AppBar(
@@ -1706,8 +1717,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                               if (_resultCourseKeyIsPrivate(key)) ...[
                                 Icon(
                                   Icons.block,
-                                  color:
-                                      Theme.of(context).colorScheme.onSurface,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
                                   size: 16,
                                 ),
                                 const SizedBox(width: 8),
@@ -1733,8 +1745,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                               if (_resultCourseKeyIsPrivate(key)) ...[
                                 Icon(
                                   Icons.block,
-                                  color:
-                                      Theme.of(context).colorScheme.onSurface,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
                                   size: 16,
                                 ),
                                 const SizedBox(width: 8),
@@ -1774,99 +1787,96 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           }
 
           final r = visibleResults[index - 1];
-                final fileId = (r['file_id'] ?? '').toString();
-                final isSelected = _selectedResultFileIds.contains(fileId);
-                final isHighlighted =
-                    fileId.isNotEmpty && fileId == _highlightedResultFileId;
-                final courseCode = (r['course_code'] ?? '').toString().trim();
-                final courseName = (r['course_name'] ?? '').toString().trim();
-                final courseLabel =
-                  courseCode.isEmpty && courseName.isEmpty
-                  ? 'Unknown Course'
-                  : courseCode.isEmpty
-                  ? courseName
-                  : courseName.isEmpty
-                  ? courseCode
-                  : '$courseCode ($courseName)';
-                final isPrivate =
-                  (r['is_private'] == true) ||
-                  (r['is_private']?.toString() == '1');
-                return Card(
-                  color: isHighlighted ? Colors.transparent : null,
-                  elevation: isHighlighted ? 0 : null,
-                  shape: isHighlighted
-                      ? RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: Colors.green, width: 2),
-                        )
-                      : null,
-                  child: ListTile(
-                    leading: _resultSelectionMode
-                        ? Checkbox(
-                            value: isSelected,
-                            onChanged: fileId.isEmpty
+          final fileId = (r['file_id'] ?? '').toString();
+          final isSelected = _selectedResultFileIds.contains(fileId);
+          final isHighlighted =
+              fileId.isNotEmpty && fileId == _highlightedResultFileId;
+          final courseCode = (r['course_code'] ?? '').toString().trim();
+          final courseName = (r['course_name'] ?? '').toString().trim();
+          final courseLabel = courseCode.isEmpty && courseName.isEmpty
+              ? 'Unknown Course'
+              : courseCode.isEmpty
+              ? courseName
+              : courseName.isEmpty
+              ? courseCode
+              : '$courseCode ($courseName)';
+          final isPrivate =
+              (r['is_private'] == true) || (r['is_private']?.toString() == '1');
+          return Card(
+            color: isHighlighted ? Colors.transparent : null,
+            elevation: isHighlighted ? 0 : null,
+            shape: isHighlighted
+                ? RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Colors.green, width: 2),
+                  )
+                : null,
+            child: ListTile(
+              leading: _resultSelectionMode
+                  ? Checkbox(
+                      value: isSelected,
+                      onChanged: fileId.isEmpty
+                          ? null
+                          : (_) => _toggleResultFileSelection(fileId),
+                    )
+                  : const Icon(Icons.assessment_outlined),
+              trailing: _resultSelectionMode
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SizedBox(
+                        width: 40,
+                        child: Align(
+                          alignment: const Alignment(0, 0.2),
+                          child: IconButton(
+                            icon: const Icon(Icons.download),
+                            tooltip: 'Download',
+                            onPressed: fileId.isEmpty
                                 ? null
-                                : (_) => _toggleResultFileSelection(fileId),
-                          )
-                        : const Icon(Icons.assessment_outlined),
-                    trailing: _resultSelectionMode
-                      ? null
-                        : Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: SizedBox(
-                              width: 40,
-                              child: Align(
-                                alignment: const Alignment(0, 0.2),
-                                child: IconButton(
-                                  icon: const Icon(Icons.download),
-                                  tooltip: 'Download',
-                                  onPressed: fileId.isEmpty
-                                      ? null
-                                      : () => _downloadSingleResult(
-                                          fileId: fileId,
-                                          fileName:
-                                              (r['file_name'] ?? '').toString(),
-                                        ),
-                                ),
-                              ),
-                            ),
+                                : () => _downloadSingleResult(
+                                    fileId: fileId,
+                                    fileName: (r['file_name'] ?? '').toString(),
+                                  ),
                           ),
-                    title: Text((r['file_name'] ?? '').toString()),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Size: ${(r['file_size'] ?? '').toString()}'),
-                        Text('Uploaded: ${(r['uploaded_at'] ?? '').toString()}'),
-                        Row(
-                          children: [
-                            if (isPrivate) ...[
-                              Icon(
-                                Icons.block,
-                                color: Theme.of(context).colorScheme.onSurface,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 6),
-                            ],
-                            Expanded(
-                              child: Text(
-                                courseLabel,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
                         ),
-                      ],
+                      ),
                     ),
-                    isThreeLine: true,
-                    selected: isSelected,
-                    onLongPress: fileId.isEmpty
-                        ? null
-                        : () => _enterResultSelectionMode(fileId),
-                    onTap: _resultSelectionMode && fileId.isNotEmpty
-                        ? () => _toggleResultFileSelection(fileId)
-                        : null,
+              title: Text((r['file_name'] ?? '').toString()),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Size: ${(r['file_size'] ?? '').toString()}'),
+                  Text('Uploaded: ${(r['uploaded_at'] ?? '').toString()}'),
+                  Row(
+                    children: [
+                      if (isPrivate) ...[
+                        Icon(
+                          Icons.block,
+                          color: Theme.of(context).colorScheme.onSurface,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: Text(
+                          courseLabel,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
-                );
+                ],
+              ),
+              isThreeLine: true,
+              selected: isSelected,
+              onLongPress: fileId.isEmpty
+                  ? null
+                  : () => _enterResultSelectionMode(fileId),
+              onTap: _resultSelectionMode && fileId.isNotEmpty
+                  ? () => _toggleResultFileSelection(fileId)
+                  : null,
+            ),
+          );
         },
       ),
     );
@@ -1892,8 +1902,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
           final t = _teachers[index];
           final teacherName = (t['name'] ?? '').toString();
           final teacherInitials = _teacherInitialsFromName(teacherName);
-          final teacherEmail = (t['email'] ?? '').toString().trim().toLowerCase();
-          final teacherImageUrl = _teacherProfileImageUrlByEmail[teacherEmail] ?? '';
+          final teacherEmail = (t['email'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          final teacherImageUrl =
+              _teacherProfileImageUrlByEmail[teacherEmail] ?? '';
           return Card(
             child: ListTile(
               leading: CircleAvatar(
@@ -1911,10 +1925,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                                 fontWeight: FontWeight.w700,
                               ),
                             )
-                          : const Icon(
-                              Icons.person,
-                              color: Colors.green,
-                            )),
+                          : const Icon(Icons.person, color: Colors.green)),
               ),
               title: Text(teacherName),
               subtitle: Text(t['email'] ?? ''),
@@ -1924,7 +1935,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                 final teacherInitials = _teacherInitialsFromName(teacherName);
                 final teacherEmail = (t['email'] ?? 'N/A').toString();
                 final teacherPhone = (t['phone'] ?? 'N/A').toString();
-                final teacherImageUrl = _teacherProfileImageUrlByEmail[(t['email'] ?? '').toString().trim().toLowerCase()] ?? '';
+                final teacherImageUrl =
+                    _teacherProfileImageUrlByEmail[(t['email'] ?? '')
+                        .toString()
+                        .trim()
+                        .toLowerCase()] ??
+                    '';
                 Future<void> copyValue(String label, String value) async {
                   final trimmed = value.trim();
                   if (trimmed.isEmpty || trimmed.toLowerCase() == 'n/a') {
@@ -1934,6 +1950,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   await Clipboard.setData(ClipboardData(text: trimmed));
                   _showMsg('$label copied');
                 }
+
                 showDialog(
                   context: context,
                   builder: (context) => AlertDialog(
@@ -2179,7 +2196,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             title: 'Name',
             value: (_profile['name'] ?? '').toString(),
             icon: Icons.badge_outlined,
-            onEdit: () => _editField('name', (_profile['name'] ?? '').toString()),
+            onEdit: () =>
+                _editField('name', (_profile['name'] ?? '').toString()),
           ),
           const Divider(height: 1),
           _buildProfileDetailRow(
@@ -2194,7 +2212,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
             title: 'Phone',
             value: (_profile['phone'] ?? '').toString(),
             icon: Icons.phone_outlined,
-            onEdit: () => _editField('phone', (_profile['phone'] ?? '').toString()),
+            onEdit: () =>
+                _editField('phone', (_profile['phone'] ?? '').toString()),
           ),
           const Divider(height: 1),
           _buildProfileDetailRow(
@@ -2268,10 +2287,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   style: TextStyle(
                     fontSize: 11,
                     letterSpacing: 0.3,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.55),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.55),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -2367,7 +2385,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                           Icons.delete_sweep,
                           color: Colors.redAccent,
                         ),
-                        onPressed: () => _clearNotifications(onUpdate: onUpdate),
+                        onPressed: () =>
+                            _clearNotifications(onUpdate: onUpdate),
                         tooltip: 'Clear All',
                       ),
                       if (_unreadCount > 0)
@@ -2678,32 +2697,28 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
         course.isNotEmpty && (course['is_enrolled'] ?? 0).toString() == '1';
     final courseCode = (course['course_code'] ?? '').toString();
     final courseName = (course['course_name'] ?? '').toString();
-    final courseLabel = [courseCode, courseName]
-        .where((value) => value.trim().isNotEmpty)
-        .join(' - ');
+    final courseLabel = [
+      courseCode,
+      courseName,
+    ].where((value) => value.trim().isNotEmpty).join(' - ');
     final bool isDiscussion = type == 'discussion';
     final dialogTitle = isDiscussion
-      ? (n['title'] ?? 'Notification').toString()
-      : (courseLabel.isNotEmpty
-        ? courseLabel
-        : (n['title'] ?? 'Notification').toString());
+        ? (n['title'] ?? 'Notification').toString()
+        : (courseLabel.isNotEmpty
+              ? courseLabel
+              : (n['title'] ?? 'Notification').toString());
 
     bool handledByAction = false;
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(
-          dialogTitle,
-        ),
+        title: Text(dialogTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              n['message'] ?? '',
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text(n['message'] ?? '', style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 20),
             Text(
               'Received: ${_formatTimestamp(n['created_at'])}',
@@ -2727,19 +2742,21 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
               onPressed: isCourseEnrolled
                   ? null
                   : () async {
-                Navigator.pop(context);
-                final course = _courses.firstWhere(
-                  (c) =>
-                      int.tryParse(c['course_id']?.toString() ?? '0') ==
-                      courseId,
-                  orElse: () => {},
-                );
-                if (course.isNotEmpty) {
-                  await _toggleEnrollment(course);
-                } else {
-                  _showMsg('Course not found in your list. Try refreshing.');
-                }
-              },
+                      Navigator.pop(context);
+                      final course = _courses.firstWhere(
+                        (c) =>
+                            int.tryParse(c['course_id']?.toString() ?? '0') ==
+                            courseId,
+                        orElse: () => {},
+                      );
+                      if (course.isNotEmpty) {
+                        await _toggleEnrollment(course);
+                      } else {
+                        _showMsg(
+                          'Course not found in your list. Try refreshing.',
+                        );
+                      }
+                    },
             ),
           if (type == 'attendance' && courseId > 0)
             ElevatedButton.icon(
@@ -2827,7 +2844,7 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
   Set<int> _markedSessionIds = {};
   int get _courseId =>
       int.tryParse((widget.course['course_id'] ?? 0).toString()) ?? 0;
-  
+
   String get _courseScope {
     final values = [
       widget.course['course_code'],
@@ -2836,7 +2853,9 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
       widget.course['courseId'],
       widget.course['course_name'],
     ];
-    final raw = values.map((v) => (v ?? '').toString().trim()).firstWhere(
+    final raw = values
+        .map((v) => (v ?? '').toString().trim())
+        .firstWhere(
           (value) => value.isNotEmpty,
           orElse: () => 'course_$_courseId',
         );
@@ -2891,10 +2910,7 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
   }
 
   Future<void> _loadAll() async {
-    await Future.wait([
-      _loadClassmates(),
-      _loadAttendanceSessions(),
-    ]);
+    await Future.wait([_loadClassmates(), _loadAttendanceSessions()]);
   }
 
   Future<void> _showAttendanceReport(Map<String, dynamic> session) async {
@@ -2938,7 +2954,6 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-
                       ],
                     ),
                     IconButton(
@@ -3004,13 +3019,35 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                                 leading: Stack(
                                   children: [
                                     CircleAvatar(
-                                      backgroundImage: _classmateProfileImageUrlByEmail?.containsKey((r['email'] ?? '').toString().trim().toLowerCase()) == true
-                                          ? NetworkImage(_classmateProfileImageUrlByEmail![(r['email'] ?? '').toString().trim().toLowerCase()]!)
+                                      backgroundImage:
+                                          _classmateProfileImageUrlByEmail
+                                                  ?.containsKey(
+                                                    (r['email'] ?? '')
+                                                        .toString()
+                                                        .trim()
+                                                        .toLowerCase(),
+                                                  ) ==
+                                              true
+                                          ? NetworkImage(
+                                              _classmateProfileImageUrlByEmail![(r['email'] ??
+                                                      '')
+                                                  .toString()
+                                                  .trim()
+                                                  .toLowerCase()]!,
+                                            )
                                           : null,
                                       backgroundColor: hasAttended
                                           ? Colors.green.withOpacity(0.1)
                                           : Colors.red.withOpacity(0.1),
-                                      child: _classmateProfileImageUrlByEmail?.containsKey((r['email'] ?? '').toString().trim().toLowerCase()) != true
+                                      child:
+                                          _classmateProfileImageUrlByEmail
+                                                  ?.containsKey(
+                                                    (r['email'] ?? '')
+                                                        .toString()
+                                                        .trim()
+                                                        .toLowerCase(),
+                                                  ) !=
+                                              true
                                           ? Text(
                                               _studentInitialsFromName(
                                                 r['name'] ?? '',
@@ -3165,7 +3202,8 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
     for (final student in students) {
       final email = (student['email'] ?? '').toString().trim().toLowerCase();
       if (email.isEmpty) continue;
-      emailToPrefix[email] = 'student_profile__${_sanitizeStudentEmail(email)}__';
+      emailToPrefix[email] =
+          'student_profile__${_sanitizeStudentEmail(email)}__';
     }
     if (emailToPrefix.isEmpty) return <String, String>{};
 
@@ -3247,6 +3285,46 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
     }
   }
 
+  Future<void> _markAttendanceWithQr(int sessionId, String qrData) async {
+    final result = await widget.apiService.markQrAttendance(
+      sessionId: sessionId,
+      email: widget.studentEmail,
+      qrCode: qrData,
+    );
+    if (!mounted) return;
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Attendance marked!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      setState(() {
+        _markedSessionIds.add(sessionId);
+        _showAttendanceHistory = true;
+      });
+      await _loadAttendanceSessions();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'QR Verification Failed'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showQrScanDialog(int sessionId) {
+    showDialog(
+      context: context,
+      useRootNavigator: true,
+      builder: (context) => _QrScannerDialog(
+        sessionId: sessionId,
+        onQrScanned: (qrData) => _markAttendanceWithQr(sessionId, qrData),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -3323,12 +3401,11 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
           final name = (s['name'] ?? '').toString();
           final email = (s['email'] ?? '').toString();
           final safeEmail = email.trim().toLowerCase();
-          final classmateAvatarMap = _classmateProfileImageUrlByEmail ?? const <String, String>{};
+          final classmateAvatarMap =
+              _classmateProfileImageUrlByEmail ?? const <String, String>{};
           final profileImageUrl = classmateAvatarMap[safeEmail] ?? '';
           final initials = _studentInitialsFromName(name);
-          final isMe =
-              email.toLowerCase() ==
-              widget.studentEmail.toLowerCase();
+          final isMe = email.toLowerCase() == widget.studentEmail.toLowerCase();
           return Container(
             margin: const EdgeInsets.symmetric(vertical: 6),
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -3627,11 +3704,11 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                   )
                 : GridView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(8, 10, 8, 80),
+                    padding: const EdgeInsets.fromLTRB(8, 10, 8, 80),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
-                          childAspectRatio: 0.72,
+                          childAspectRatio: 0.64,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 12,
                         ),
@@ -3675,6 +3752,13 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                           remainingText = 'Status: Ended';
                         }
                       } catch (_) {}
+                      final isDynamicQr = s['is_dynamic_qr'];
+                      final bool isDynamicQrSession =
+                          (isDynamicQr == 1 ||
+                              isDynamicQr == '1' ||
+                              isDynamicQr == true) ||
+                          (s['qr_code_hex'] != null &&
+                              s['qr_code_hex'].toString().isNotEmpty);
                       final bgColor = statusColor.withOpacity(0.08);
                       return InkWell(
                         onTap: () => _showAttendanceReport(s),
@@ -3757,35 +3841,79 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
                                           ],
                                         ),
                                       ),
-                                      if (!_showAttendanceHistory)
-                                        PopupMenuButton<String>(
-                                          icon: const Icon(
-                                            Icons.more_vert,
-                                            color: Colors.black54,
-                                            size: 20,
-                                          ),
-                                          onSelected: (val) {
-                                            if (val == 'mark') {
-                                              _markAttendance(sessionId);
-                                            }
-                                          },
-                                          itemBuilder: (context) => [
-                                            if (!isMarked)
-                                              const PopupMenuItem(
-                                                value: 'mark',
-                                                child: ListTile(
-                                                  dense: true,
-                                                  leading: Icon(
-                                                    Icons.check_circle_outline,
-                                                    color: Colors.green,
-                                                  ),
-                                                  title: Text(
-                                                    'Give Attendance',
-                                                  ),
-                                                ),
-                                              ),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (isDynamicQrSession) ...[
+                                            const Icon(
+                                              Icons.qr_code_2,
+                                              size: 20,
+                                              color: Colors.black87,
+                                            ),
+                                            const SizedBox(width: 2),
                                           ],
-                                        ),
+                                          Container(
+                                            margin: const EdgeInsets.only(left: 1, right: 0),
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.teal.withOpacity(0.12),
+                                              border: Border.all(color: Colors.teal.shade300, width: 1),
+                                              borderRadius: BorderRadius.circular(5),
+                                            ),
+                                            child: Text(
+                                              '#$sessionId',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.teal.shade900,
+                                              ),
+                                            ),
+                                          ),
+                                          if (!_showAttendanceHistory)
+                                            PopupMenuButton<String>(
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(),
+                                              icon: const Icon(
+                                                Icons.more_vert,
+                                                color: Colors.black54,
+                                                size: 20,
+                                              ),
+                                              onSelected: (val) {
+                                                if (val == 'mark') {
+                                                  if (isDynamicQrSession) {
+                                                    _showQrScanDialog(
+                                                      sessionId,
+                                                    );
+                                                  } else {
+                                                    _markAttendance(sessionId);
+                                                  }
+                                                }
+                                              },
+                                              itemBuilder: (context) => [
+                                                if (!isMarked)
+                                                  PopupMenuItem(
+                                                    value: 'mark',
+                                                    child: ListTile(
+                                                      dense: true,
+                                                      leading: Icon(
+                                                        isDynamicQrSession
+                                                            ? Icons
+                                                                  .qr_code_scanner
+                                                            : Icons
+                                                                  .check_circle_outline,
+                                                        color: Colors.green,
+                                                      ),
+                                                      title: Text(
+                                                        isDynamicQrSession
+                                                            ? 'Scan QR'
+                                                            : 'Give Attendance',
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                        ],
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -3924,6 +4052,255 @@ class _StudentCourseDetailPageState extends State<StudentCourseDetailPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _QrScannerDialog extends StatefulWidget {
+  final int sessionId;
+  final Function(String qrData) onQrScanned;
+
+  const _QrScannerDialog({
+    required this.sessionId,
+    required this.onQrScanned,
+  });
+
+  @override
+  State<_QrScannerDialog> createState() => _QrScannerDialogState();
+}
+
+class _QrScannerDialogState extends State<_QrScannerDialog> {
+  MobileScannerController? _controller;
+  bool _isCameraActive = false;
+  bool _isProcessingScan = false;
+  bool _isLoadingInCamera = false;
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startCamera() async {
+    final status = await ph.Permission.camera.status;
+    if (status.isGranted) {
+      _activateScanner();
+    } else {
+      if (!mounted) return;
+      _showPermissionConfirmationDialog();
+    }
+  }
+
+  void _activateScanner() {
+    setState(() {
+      _isCameraActive = true;
+      _controller = MobileScannerController(
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        facing: CameraFacing.back,
+      );
+    });
+  }
+
+  void _showPermissionConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.camera_alt, color: Colors.teal),
+            SizedBox(width: 8),
+            Text('Camera Access Required', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          'Camera permission is required to scan the attendance QR code displayed on the teacher screen. Would you like to grant permission?',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final requested = await ph.Permission.camera.request();
+              if (requested.isGranted) {
+                _activateScanner();
+              } else if (requested.isPermanentlyDenied) {
+                ph.openAppSettings();
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Allow Camera'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onDetect(BarcodeCapture capture) async {
+    if (_isProcessingScan) return;
+    final List<Barcode> barcodes = capture.barcodes;
+    for (final barcode in barcodes) {
+      final rawValue = barcode.rawValue;
+      if (rawValue != null && rawValue.isNotEmpty) {
+        setState(() {
+          _isProcessingScan = true;
+          _isLoadingInCamera = true;
+        });
+        _controller?.stop();
+        await Future.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true).pop();
+        widget.onQrScanned(rawValue);
+        break;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 320,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'ScanQR',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Align the QR code inside the frame to mark attendance',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.teal, width: 2),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: _isCameraActive && _controller != null
+                    ? Stack(
+                        children: [
+                          MobileScanner(
+                            controller: _controller,
+                            onDetect: _onDetect,
+                            fit: BoxFit.cover,
+                          ),
+                          if (_isLoadingInCamera)
+                            Container(
+                              color: const Color(0xB3000000),
+                              alignment: Alignment.center,
+                              child: const Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(
+                                    color: Colors.tealAccent,
+                                  ),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'Verifying QR...',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      )
+                    : Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Icon(
+                            Icons.qr_code_scanner,
+                            size: 100,
+                            color: Colors.tealAccent,
+                          ),
+                          Positioned(
+                            bottom: 12,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'Tap Scan to Open Camera',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (!_isCameraActive)
+              ElevatedButton.icon(
+                onPressed: _startCamera,
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Scan'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 44),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: () {
+                  _controller?.stop();
+                  setState(() {
+                    _isCameraActive = false;
+                  });
+                },
+                icon: const Icon(Icons.videocam_off),
+                label: const Text('Close Camera'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey.shade700,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 44),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context, rootNavigator: true).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

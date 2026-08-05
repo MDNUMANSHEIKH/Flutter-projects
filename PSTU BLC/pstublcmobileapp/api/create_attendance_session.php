@@ -38,38 +38,28 @@ if ($pickedEndDate <= $pickedDate) {
     exit();
 }
 
-$stmt = $conn->prepare("INSERT INTO attendance_sessions (course_id, session_date, session_end) VALUES (?, ?, ?)");
-$stmt->bind_param("iss", $course_id, $session_date, $session_end);
+$is_dynamic_qr = (!empty($data['is_dynamic_qr'])) ? 1 : 0;
+$qr_interval = null;
+$qr_code_hex = null;
+
+if ($is_dynamic_qr === 1) {
+    $qr_interval = isset($data['qr_interval']) ? intval($data['qr_interval']) : 3;
+    if ($qr_interval < 1) $qr_interval = 1;
+    if ($qr_interval > 20) $qr_interval = 20;
+    $qr_code_hex = bin2hex(random_bytes(24));
+}
+
+$stmt = $conn->prepare("INSERT INTO attendance_sessions (course_id, session_date, session_end, is_dynamic_qr, qr_interval, qr_code_hex) VALUES (?, ?, ?, ?, ?, ?)");
+$stmt->bind_param("issiis", $course_id, $session_date, $session_end, $is_dynamic_qr, $qr_interval, $qr_code_hex);
 
 if ($stmt->execute()) {
     $session_id = $stmt->insert_id;
     logActivity($conn, $teacher_email, 'teacher', 'create_attendance', "Course: $course_id, Range: $session_date to $session_end");
     
-    // 1. Get Course Code/Name for notification title
-    $cSql = "SELECT course_code, course_name FROM courses WHERE id = ?";
-    $cStmt = $conn->prepare($cSql);
-    $cStmt->bind_param("i", $course_id);
-    $cStmt->execute();
-    $cRes = $cStmt->get_result()->fetch_assoc();
-    $course_info = ($cRes['course_code'] ?? 'Course') . ": " . ($cRes['course_name'] ?? '');
-    $cStmt->close();
+    require_once 'attendance_notify_helper.php';
+    checkAndNotifyActiveSessions($conn);
 
-    // 2. Notify all enrolled students (including blocked ones? User said 'if any course for me or any attendance launched'). 
-    // Usually, blocked students shouldn't get notifications.
-    $nSql = "INSERT INTO notifications (student_email, course_id, title, message, type) 
-             SELECT student_email, ?, ?, ?, 'attendance' 
-             FROM enrollments 
-             WHERE course_id = ? AND is_blocked = 0";
-    
-    $notif_title = "Attendance Session Started";
-    $notif_msg = "A new attendance session has been launched for $course_info. Please mark your attendance.";
-    
-    $nStmt = $conn->prepare($nSql);
-    $nStmt->bind_param("issi", $course_id, $notif_title, $notif_msg, $course_id);
-    $nStmt->execute();
-    $nStmt->close();
-
-    echo json_encode(['success' => true, 'message' => 'Attendance session created and students notified']);
+    echo json_encode(['success' => true, 'message' => 'Attendance session created']);
 } else {
     echo json_encode(['success' => false, 'message' => 'Database error: ' . $stmt->error]);
 }

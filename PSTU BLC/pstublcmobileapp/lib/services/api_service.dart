@@ -9,7 +9,7 @@ import 'package:pstublc/config/appwrite_storage.dart';
 
 class ApiService {
   static const String _defaultBaseUrl =
-      'http://192.168.0.110/MobileApp/pstublcmobileapp/api';
+      'http://10.239.67.112/MobileApp/pstublcmobileapp/api';
   static final ValueNotifier<bool> databaseErrorNotifier = ValueNotifier(false);
   static final ValueNotifier<bool> noInternetNotifier = ValueNotifier(false);
 
@@ -45,12 +45,14 @@ class ApiService {
   ) async {
     try {
       debugPrint('POST JSON: $endpoint - ${jsonEncode(body)}');
-      final response = await http.post(
-        await _uri(endpoint),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 15));
-      
+      final response = await http
+          .post(
+            await _uri(endpoint),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
+
       debugPrint('RESPONSE: ${response.statusCode} - ${response.body}');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _trackDatabaseErrorFromResponse(data);
@@ -65,7 +67,9 @@ class ApiService {
       return {'success': false, 'message': 'No internet connection'};
     } catch (e) {
       final msg = e.toString().toLowerCase();
-      if (msg.contains('timeout') || msg.contains('connection refused') || msg.contains('network is unreachable')) {
+      if (msg.contains('timeout') ||
+          msg.contains('connection refused') ||
+          msg.contains('network is unreachable')) {
         _setNoInternet(true);
         return {'success': false, 'message': 'No internet connection'};
       }
@@ -81,11 +85,10 @@ class ApiService {
   ) async {
     try {
       debugPrint('POST FORM: $endpoint');
-      final response = await http.post(
-        await _uri(endpoint), 
-        body: body
-      ).timeout(const Duration(seconds: 15));
-      
+      final response = await http
+          .post(await _uri(endpoint), body: body)
+          .timeout(const Duration(seconds: 15));
+
       debugPrint('RESPONSE: ${response.statusCode} - ${response.body}');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _trackDatabaseErrorFromResponse(data);
@@ -100,7 +103,9 @@ class ApiService {
       return {'success': false, 'message': 'No internet connection'};
     } catch (e) {
       final msg = e.toString().toLowerCase();
-      if (msg.contains('timeout') || msg.contains('connection refused') || msg.contains('network is unreachable')) {
+      if (msg.contains('timeout') ||
+          msg.contains('connection refused') ||
+          msg.contains('network is unreachable')) {
         _setNoInternet(true);
         return {'success': false, 'message': 'No internet connection'};
       }
@@ -130,9 +135,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> resendOtp(String email) {
-    return _postJson('resend_otp.php', {
-      'email': email.trim().toLowerCase(),
-    });
+    return _postJson('resend_otp.php', {'email': email.trim().toLowerCase()});
   }
 
   // Appwrite OTP Methods
@@ -140,17 +143,24 @@ class ApiService {
     try {
       debugPrint('Sending Appwrite OTP to: $email');
       // Use 'unique' as a placeholder, Appwrite will return the actual User ID (existing or new)
-      final token = await _account.createEmailToken(
-        userId: ID.unique(),
-        email: email.trim().toLowerCase(),
-      ).timeout(const Duration(seconds: 20));
-      
+      final token = await _account
+          .createEmailToken(
+            userId: ID.unique(),
+            email: email.trim().toLowerCase(),
+          )
+          .timeout(const Duration(seconds: 20));
+
       final actualUserId = token.userId;
-      debugPrint('Appwrite OTP sent successfully. Actual UserId: $actualUserId');
+      debugPrint(
+        'Appwrite OTP sent successfully. Actual UserId: $actualUserId',
+      );
       return {'success': true, 'userId': actualUserId};
     } catch (e) {
       debugPrint('Appwrite Error (sendOtp): $e');
-      return {'success': false, 'message': 'Failed to send OTP via Appwrite: $e'};
+      return {
+        'success': false,
+        'message': 'Failed to send OTP via Appwrite: $e',
+      };
     }
   }
 
@@ -161,17 +171,16 @@ class ApiService {
   }) async {
     try {
       debugPrint('Verifying Appwrite OTP for $userId');
-      await _account.createSession(
-        userId: userId, 
-        secret: secret
-      ).timeout(const Duration(seconds: 20));
-      
+      await _account
+          .createSession(userId: userId, secret: secret)
+          .timeout(const Duration(seconds: 20));
+
       debugPrint('Appwrite verification success.');
       if (userData != null) {
         debugPrint('Saving session.');
         await _saveUserSession(userData, userData['email'] ?? '');
       }
-      
+
       return {'success': true};
     } catch (e) {
       debugPrint('Appwrite Error (verifyOtp): $e');
@@ -246,8 +255,9 @@ class ApiService {
     required String password,
     bool verifyOnly = false,
   }) {
-    final endpoint =
-        role == 'student' ? 'delete_student_account.php' : 'delete_teacher_account.php';
+    final endpoint = role == 'student'
+        ? 'delete_student_account.php'
+        : 'delete_teacher_account.php';
     return _postForm(endpoint, {
       'email': email.trim().toLowerCase(),
       'password': password,
@@ -291,7 +301,10 @@ class ApiService {
     });
   }
 
-  Future<Map<String, dynamic>> getAssignments(int courseId, {String? studentEmail}) {
+  Future<Map<String, dynamic>> getAssignments(
+    int courseId, {
+    String? studentEmail,
+  }) {
     final body = <String, dynamic>{'course_id': courseId};
     if (studentEmail != null) body['student_email'] = studentEmail;
     return _postJson('get_assignments.php', body);
@@ -471,12 +484,16 @@ class ApiService {
     required String teacherEmail,
     required String sessionDate,
     required String sessionEnd,
+    bool isDynamicQr = true,
+    int qrInterval = 3,
   }) {
     return _postJson('create_attendance_session.php', {
       'course_id': courseId,
       'teacher_email': teacherEmail,
       'session_date': sessionDate,
       'session_end': sessionEnd,
+      'is_dynamic_qr': isDynamicQr ? 1 : 0,
+      'qr_interval': qrInterval,
     });
   }
 
@@ -514,6 +531,18 @@ class ApiService {
     return _postJson('mark_attendance.php', {
       'session_id': sessionId,
       'email': email,
+    });
+  }
+
+  Future<Map<String, dynamic>> markQrAttendance({
+    required int sessionId,
+    required String email,
+    required String qrCode,
+  }) {
+    return _postJson('mark_qr_attendance.php', {
+      'session_id': sessionId,
+      'email': email,
+      'qr_code': qrCode,
     });
   }
 
@@ -854,7 +883,8 @@ class ApiService {
         return data;
       }
       if (response.data is String) {
-        final data = jsonDecode(response.data as String) as Map<String, dynamic>;
+        final data =
+            jsonDecode(response.data as String) as Map<String, dynamic>;
         _trackDatabaseErrorFromResponse(data);
         return data;
       }
@@ -928,7 +958,8 @@ class ApiService {
         return data;
       }
       if (response.data is String) {
-        final data = jsonDecode(response.data as String) as Map<String, dynamic>;
+        final data =
+            jsonDecode(response.data as String) as Map<String, dynamic>;
         _trackDatabaseErrorFromResponse(data);
         return data;
       }
@@ -977,12 +1008,18 @@ class ApiService {
     await prefs.setBool('isLoggedIn', true);
     await prefs.setString('userRole', role);
     await prefs.setString('userName', name);
-    await prefs.setString('userEmail', email.isNotEmpty ? email : loginEmail.trim().toLowerCase());
+    await prefs.setString(
+      'userEmail',
+      email.isNotEmpty ? email : loginEmail.trim().toLowerCase(),
+    );
 
     // Handle both flat (student login) and nested (legacy) faculty format
     if (data['faculty_code'] != null) {
       await prefs.setString('facultyCode', data['faculty_code'].toString());
-      await prefs.setString('facultyName', (data['faculty_name'] ?? '').toString());
+      await prefs.setString(
+        'facultyName',
+        (data['faculty_name'] ?? '').toString(),
+      );
     } else if (data['faculty'] != null && data['faculty'] is Map) {
       final faculty = data['faculty'] as Map;
       await prefs.setString('facultyCode', (faculty['code'] ?? '').toString());

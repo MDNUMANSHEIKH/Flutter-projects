@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once 'db_config.php';
+require_once 'attendance_notify_helper.php';
 
 $email = trim(strtolower($_GET['email'] ?? ''));
 
@@ -20,6 +21,9 @@ if (empty($email)) {
     echo json_encode(['success' => false, 'message' => 'Email is required']);
     exit();
 }
+
+// Auto-check and notify any scheduled sessions that just became active
+checkAndNotifyActiveSessions($conn);
 
 // Fetch notifications
 $sql = "SELECT id, course_id, title, message, type, is_read, created_at 
